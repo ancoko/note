@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>手書きノートアプリ - ファイル名指定対応版</title>
+    <title>手書きノートアプリ - 複数ページ＆フォルダ保存対応版</title>
     <!-- PDF.js の読み込み -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
@@ -134,7 +134,8 @@
         </div>
         <div class="note-list" id="item-list"></div>
         <div class="sidebar-footer">
-            <button class="btn-sys" id="btn-export">💾 保存(DL)</button>
+            <button class="btn-sys" id="btn-export">💾 全体バックアップ</button>
+            <button class="btn-sys" id="btn-export-folder">💾 フォルダ保存</button>
             <button class="btn-sys" id="btn-import-trigger">📂 読込</button>
             <input type="file" id="backup-loader" accept=".json" style="display: none;">
         </div>
@@ -165,6 +166,14 @@
                 <button class="btn-tool" id="btn-redo" title="一つ進む" disabled>↪ 進む</button>
             </div>
             <div class="tool-group">
+                <!-- ページ操作系 -->
+                <button class="btn-tool" id="btn-prev-page" title="前のページ">◀</button>
+                <span id="page-indicator" style="font-size: 0.85rem; font-weight: bold; min-width: 40px; text-align: center;">1/1</span>
+                <button class="btn-tool" id="btn-next-page" title="次のページ">▶</button>
+                <button class="btn-tool" id="btn-add-page" title="ページ追加">➕ ページ追加</button>
+                <button class="btn-tool" id="btn-del-page" title="このページを削除" style="color: #de350b;">🗑️ 削除</button>
+            </div>
+            <div class="tool-group">
                 <select id="size-select" class="btn-tool">
                     <option value="a4">A4サイズ</option>
                     <option value="b5">B5サイズ</option>
@@ -175,12 +184,12 @@
                     <option value="lined">横罫線</option>
                     <option value="blank">白紙</option>
                 </select>
-                <button class="btn-tool" id="btn-load-file">📄 PDF/画像</button>
+                <button class="btn-tool" id="btn-load-file">📄 PDF/画像追加</button>
                 <input type="file" id="file-loader" accept="image/jpeg,image/png,application/pdf" style="display: none;">
             </div>
             <div class="tool-group" style="margin-left: auto;">
                 <button class="btn-tool" id="btn-print">🖨️ 印刷</button>
-                <button class="btn-tool" id="btn-clear" style="color: #de350b; border-color: #de350b;">全消去</button>
+                <button class="btn-tool" id="btn-clear" style="color: #de350b; border-color: #de350b;">ページ内消去</button>
             </div>
         </div>
 
@@ -200,6 +209,7 @@
 
         let currentFolderId = null;
         let activeNoteId = null;
+        let currentPageIndex = 0; // 現在表示しているページ番号（0始まり）
 
         let toolSettings = {
             pen: { color: '#172b4d', size: 3 },
@@ -239,7 +249,8 @@
             sizeSelect: document.getElementById('size-select'),
             bgSelect: document.getElementById('bg-select'),
             btnUndo: document.getElementById('btn-undo'),
-            btnRedo: document.getElementById('btn-redo')
+            btnRedo: document.getElementById('btn-redo'),
+            pageIndicator: document.getElementById('page-indicator')
         };
 
         function saveData() { localStorage.setItem('my_handwritten_data', JSON.stringify(appData)); }
@@ -284,10 +295,7 @@
                 const item = document.createElement('div');
                 item.className = `list-item ${note.id === activeNoteId ? 'active' : ''}`;
                 
-                const noteName = note.name || (() => {
-                    const d = new Date(note.updatedAt);
-                    return `無題ノート (${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')})`;
-                })();
+                const noteName = note.name || '無題ノート';
 
                 item.innerHTML = `
                     <span class="item-name">📄 ${escapeHTML(noteName)}</span>
@@ -316,8 +324,13 @@
 
         ui.btnNewNote.onclick = () => {
             const newNote = {
-                id: Date.now().toString(), name: '新規ノート', folderId: currentFolderId, updatedAt: Date.now(),
-                paperSize: 'a4', bg: 'grid', bgImage: null, customWidth: null, customHeight: null, paths: [], redoPaths: []
+                id: Date.now().toString(), 
+                name: '新規ノート', 
+                folderId: currentFolderId, 
+                updatedAt: Date.now(),
+                pages: [
+                    { paperSize: 'a4', bg: 'grid', bgImage: null, customWidth: null, customHeight: null, paths: [], redoPaths: [] }
+                ]
             };
             appData.notes.push(newNote);
             saveData(); selectNote(newNote.id, true);
@@ -360,31 +373,51 @@
 
         function selectNote(id, resetPos = false) {
             activeNoteId = id;
+            currentPageIndex = 0;
             ui.toolbar.style.display = 'flex'; ui.btnToggleFloating.style.display = 'none'; ui.placeholder.style.display = 'none';
             initNoteView(resetPos); renderSidebar();
         }
 
+        // --- 複数ページ対応の初期化＆ビュー更新 ---
         function initNoteView(resetPos = false) {
             const note = appData.notes.find(n => n.id === activeNoteId);
             if (!note) return;
 
-            if (!note.paperSize) note.paperSize = 'a4';
-            if (!note.bg) note.bg = 'grid';
-
-            ui.sizeSelect.value = note.paperSize;
-            ui.bgSelect.value = note.bg;
-            
-            paperContainer.classList.remove('bg-grid', 'bg-lined', 'bg-blank');
-            if (note.bgImage) {
-                paperContainer.style.backgroundImage = `url(${note.bgImage})`;
-            } else {
-                paperContainer.style.backgroundImage = '';
-                paperContainer.classList.add(`bg-${note.bg}`);
+            // 互換性対応（古い単一ページデータを移行）
+            if (!note.pages) {
+                note.pages = [{
+                    paperSize: note.paperSize || 'a4',
+                    bg: note.bg || 'grid',
+                    bgImage: note.bgImage || null,
+                    customWidth: note.customWidth || null,
+                    customHeight: note.customHeight || null,
+                    paths: note.paths || [],
+                    redoPaths: note.redoPaths || []
+                }];
+                delete note.paperSize; delete note.bg; delete note.bgImage; delete note.customWidth; delete note.customHeight; delete note.paths; delete note.redoPaths;
             }
 
-            let sizeDef = (note.paperSize === 'free' && note.customWidth && note.customHeight) 
-                ? { width: note.customWidth, height: note.customHeight } 
-                : PAPER_SIZES[note.paperSize] || PAPER_SIZES.a4;
+            if (currentPageIndex >= note.pages.length) currentPageIndex = note.pages.length - 1;
+            if (currentPageIndex < 0) currentPageIndex = 0;
+
+            const page = note.pages[currentPageIndex];
+            if (!page.paperSize) page.paperSize = 'a4';
+            if (!page.bg) page.bg = 'grid';
+
+            ui.sizeSelect.value = page.paperSize;
+            ui.bgSelect.value = page.bg;
+            
+            paperContainer.classList.remove('bg-grid', 'bg-lined', 'bg-blank');
+            if (page.bgImage) {
+                paperContainer.style.backgroundImage = `url(${page.bgImage})`;
+            } else {
+                paperContainer.style.backgroundImage = '';
+                paperContainer.classList.add(`bg-${page.bg}`);
+            }
+
+            let sizeDef = (page.paperSize === 'free' && page.customWidth && page.customHeight) 
+                ? { width: page.customWidth, height: page.customHeight } 
+                : PAPER_SIZES[page.paperSize] || PAPER_SIZES.a4;
 
             canvas.width = sizeDef.width; canvas.height = sizeDef.height;
             canvas.style.width = sizeDef.width + 'px'; canvas.style.height = sizeDef.height + 'px';
@@ -396,8 +429,69 @@
                 const scaleY = (wrapper.clientHeight * 0.9) / sizeDef.height;
                 scale = Math.min(scaleX, scaleY, 1);
             }
-            updateTransform(); drawActiveNote(); updateUndoRedoButtons();
+            updateTransform(); 
+            drawActiveNote(); 
+            updatePageIndicator();
+            updateUndoRedoButtons();
         }
+
+        function updatePageIndicator() {
+            const note = appData.notes.find(n => n.id === activeNoteId);
+            if (!note || !note.pages) return;
+            ui.pageIndicator.textContent = `${currentPageIndex + 1} / ${note.pages.length}`;
+            document.getElementById('btn-prev-page').disabled = (currentPageIndex === 0);
+            document.getElementById('btn-next-page').disabled = (currentPageIndex === note.pages.length - 1);
+            document.getElementById('btn-del-page').disabled = (note.pages.length <= 1);
+        }
+
+        document.getElementById('btn-prev-page').onclick = () => {
+            if (currentPageIndex > 0) {
+                currentPageIndex--;
+                initNoteView(false);
+            }
+        };
+
+        document.getElementById('btn-next-page').onclick = () => {
+            const note = appData.notes.find(n => n.id === activeNoteId);
+            if (note && currentPageIndex < note.pages.length - 1) {
+                currentPageIndex++;
+                initNoteView(false);
+            }
+        };
+
+        document.getElementById('btn-add-page').onclick = () => {
+            const note = appData.notes.find(n => n.id === activeNoteId);
+            if (!note) return;
+            const prevPage = note.pages[currentPageIndex];
+            const newPage = {
+                paperSize: prevPage.paperSize,
+                bg: prevPage.bg,
+                bgImage: null,
+                customWidth: prevPage.customWidth,
+                customHeight: prevPage.customHeight,
+                paths: [],
+                redoPaths: []
+            };
+            note.pages.splice(currentPageIndex + 1, 0, newPage);
+            currentPageIndex++;
+            note.updatedAt = Date.now();
+            saveData();
+            initNoteView(false);
+        };
+
+        document.getElementById('btn-del-page').onclick = () => {
+            const note = appData.notes.find(n => n.id === activeNoteId);
+            if (!note || note.pages.length <= 1) {
+                alert('最後のページは削除できません。');
+                return;
+            }
+            if (!confirm(`ページ ${currentPageIndex + 1} を削除しますか？`)) return;
+            note.pages.splice(currentPageIndex, 1);
+            if (currentPageIndex >= note.pages.length) currentPageIndex = note.pages.length - 1;
+            note.updatedAt = Date.now();
+            saveData();
+            initNoteView(false);
+        };
 
         function updateTransform() {
             paperContainer.style.transform = `translate(calc(-50% + ${panX}px), calc(-50% + ${panY}px)) scale(${scale})`;
@@ -407,8 +501,9 @@
         function updateUndoRedoButtons() {
             const note = appData.notes.find(n => n.id === activeNoteId);
             if (!note) return;
-            ui.btnUndo.disabled = !note.paths || note.paths.length === 0;
-            ui.btnRedo.disabled = !note.redoPaths || note.redoPaths.length === 0;
+            const page = note.pages[currentPageIndex];
+            ui.btnUndo.disabled = !page.paths || page.paths.length === 0;
+            ui.btnRedo.disabled = !page.redoPaths || page.redoPaths.length === 0;
         }
 
         function drawPath(path) {
@@ -450,9 +545,11 @@
 
         function drawActiveNote() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            const currentNote = appData.notes.find(n => n.id === activeNoteId);
-            if (!currentNote || !currentNote.paths) return;
-            currentNote.paths.forEach(path => drawPath(path));
+            const note = appData.notes.find(n => n.id === activeNoteId);
+            if (!note || !note.pages) return;
+            const page = note.pages[currentPageIndex];
+            if (!page || !page.paths) return;
+            page.paths.forEach(path => drawPath(path));
         }
 
         function setTool(tool) {
@@ -531,7 +628,11 @@
                     width: Number(ui.brushSize.value), points: [pos]
                 };
                 const note = appData.notes.find(n => n.id === activeNoteId);
-                if (note) { note.paths.push(currentPath); note.redoPaths = []; }
+                if (note) {
+                    const page = note.pages[currentPageIndex];
+                    page.paths.push(currentPath);
+                    page.redoPaths = [];
+                }
             }
         });
 
@@ -586,11 +687,12 @@
             }
             const note = appData.notes.find(n => n.id === activeNoteId);
             if (note) {
-                note.paths.push({
+                const page = note.pages[currentPageIndex];
+                page.paths.push({
                     tool: 'text', text: textInput.value, x: textInputPos.x, y: textInputPos.y,
                     color: toolSettings.text.color, size: toolSettings.text.size
                 });
-                note.redoPaths = []; note.updatedAt = Date.now(); saveData(); drawActiveNote(); updateUndoRedoButtons();
+                page.redoPaths = []; note.updatedAt = Date.now(); saveData(); drawActiveNote(); updateUndoRedoButtons();
             }
             textInput.style.display = 'none'; textInput.value = '';
         }
@@ -598,39 +700,47 @@
 
         ui.btnUndo.onclick = () => {
             const note = appData.notes.find(n => n.id === activeNoteId);
-            if (!note || !note.paths || note.paths.length === 0) return;
-            note.redoPaths.push(note.paths.pop()); note.updatedAt = Date.now();
+            if (!note) return;
+            const page = note.pages[currentPageIndex];
+            if (!page.paths || page.paths.length === 0) return;
+            page.redoPaths.push(page.paths.pop()); note.updatedAt = Date.now();
             saveData(); drawActiveNote(); updateUndoRedoButtons();
         };
 
         ui.btnRedo.onclick = () => {
             const note = appData.notes.find(n => n.id === activeNoteId);
-            if (!note || !note.redoPaths || note.redoPaths.length === 0) return;
-            note.paths.push(note.redoPaths.pop()); note.updatedAt = Date.now();
+            if (!note) return;
+            const page = note.pages[currentPageIndex];
+            if (!page.redoPaths || page.redoPaths.length === 0) return;
+            page.paths.push(page.redoPaths.pop()); note.updatedAt = Date.now();
             saveData(); drawActiveNote(); updateUndoRedoButtons();
         };
 
         document.getElementById('btn-clear').onclick = () => {
-            if (!activeNoteId || !confirm('このノートの書き込みをすべて消去しますか？')) return;
+            if (!activeNoteId || !confirm('このページの書き込みをすべて消去しますか？')) return;
             const note = appData.notes.find(n => n.id === activeNoteId);
-            if (note) { note.paths = []; note.redoPaths = []; note.updatedAt = Date.now(); saveData(); drawActiveNote(); updateUndoRedoButtons(); }
+            if (note) {
+                const page = note.pages[currentPageIndex];
+                page.paths = []; page.redoPaths = []; note.updatedAt = Date.now(); saveData(); drawActiveNote(); updateUndoRedoButtons();
+            }
         };
 
         ui.sizeSelect.onchange = (e) => {
             if (!activeNoteId) return;
             const note = appData.notes.find(n => n.id === activeNoteId);
             if (note) {
-                note.paperSize = e.target.value;
-                if (note.paperSize === 'free') {
+                const page = note.pages[currentPageIndex];
+                page.paperSize = e.target.value;
+                if (page.paperSize === 'free') {
                     const w = prompt('紙の幅を入力してください(px):', '1200');
                     const h = prompt('紙の高さを入力してください(px):', '1600');
                     if(w && h && !isNaN(w) && !isNaN(h)) {
-                        note.customWidth = parseInt(w); note.customHeight = parseInt(h);
+                        page.customWidth = parseInt(w); page.customHeight = parseInt(h);
                     } else {
-                        ui.sizeSelect.value = 'a4'; note.paperSize = 'a4';
+                        ui.sizeSelect.value = 'a4'; page.paperSize = 'a4';
                     }
                 } else {
-                    note.customWidth = null; note.customHeight = null;
+                    page.customWidth = null; page.customHeight = null;
                 }
                 note.updatedAt = Date.now(); saveData(); initNoteView(true);
             }
@@ -639,9 +749,13 @@
         ui.bgSelect.onchange = (e) => {
             if (!activeNoteId) return;
             const note = appData.notes.find(n => n.id === activeNoteId);
-            if (note) { note.bg = e.target.value; note.bgImage = null; note.updatedAt = Date.now(); saveData(); initNoteView(true); }
+            if (note) {
+                const page = note.pages[currentPageIndex];
+                page.bg = e.target.value; page.bgImage = null; note.updatedAt = Date.now(); saveData(); initNoteView(true);
+            }
         };
 
+        // --- 複数ページPDF対応を含むファイル読み込み ---
         const fileLoader = document.getElementById('file-loader');
         document.getElementById('btn-load-file').onclick = () => fileLoader.click();
         
@@ -656,15 +770,38 @@
                 reader.onload = async function() {
                     try {
                         const pdf = await pdfjsLib.getDocument(new Uint8Array(this.result)).promise;
-                        const page = await pdf.getPage(1);
-                        const viewport = page.getViewport({ scale: 2.0 });
-                        const tempCanvas = document.createElement('canvas');
-                        tempCanvas.width = viewport.width; tempCanvas.height = viewport.height;
-                        await page.render({ canvasContext: tempCanvas.getContext('2d'), viewport: viewport }).promise;
+                        const numPages = pdf.numPages;
                         
-                        note.bgImage = tempCanvas.toDataURL('image/jpeg');
-                        note.paperSize = 'free'; note.customWidth = viewport.width; note.customHeight = viewport.height;
-                        note.updatedAt = Date.now(); saveData(); initNoteView(true);
+                        for (let i = 1; i <= numPages; i++) {
+                            const page = await pdf.getPage(i);
+                            const viewport = page.getViewport({ scale: 2.0 });
+                            const tempCanvas = document.createElement('canvas');
+                            tempCanvas.width = viewport.width; tempCanvas.height = viewport.height;
+                            await page.render({ canvasContext: tempCanvas.getContext('2d'), viewport: viewport }).promise;
+                            
+                            const bgData = tempCanvas.toDataURL('image/jpeg');
+                            const newPageObj = {
+                                paperSize: 'free',
+                                bg: 'blank',
+                                bgImage: bgData,
+                                customWidth: viewport.width,
+                                customHeight: viewport.height,
+                                paths: [],
+                                redoPaths: []
+                            };
+
+                            // 現在のページの直後に追加するか、最初の空ページに割り当てる
+                            if (i === 1 && note.pages[currentPageIndex].paths.length === 0 && !note.pages[currentPageIndex].bgImage) {
+                                note.pages[currentPageIndex] = newPageObj;
+                            } else {
+                                note.pages.splice(currentPageIndex + 1, 0, newPageObj);
+                                currentPageIndex++;
+                            }
+                        }
+                        note.updatedAt = Date.now(); 
+                        saveData(); 
+                        initNoteView(true);
+                        alert(`全 ${numPages} ページのPDFを取り込みました。`);
                     } catch (err) { alert('PDFの読み込みに失敗しました。'); }
                 };
                 reader.readAsArrayBuffer(file);
@@ -673,8 +810,9 @@
                 reader.onload = function(event) {
                     const img = new Image();
                     img.onload = function() {
-                        note.bgImage = event.target.result;
-                        note.paperSize = 'free'; note.customWidth = img.naturalWidth; note.customHeight = img.naturalHeight;
+                        const page = note.pages[currentPageIndex];
+                        page.bgImage = event.target.result;
+                        page.paperSize = 'free'; page.customWidth = img.naturalWidth; page.customHeight = img.naturalHeight;
                         note.updatedAt = Date.now(); saveData(); initNoteView(true);
                     };
                     img.src = event.target.result;
@@ -692,24 +830,58 @@
             paperContainer.style.transform = currentTransform;
         };
 
-        // --- 保存（ファイル名指定対応） ---
+        // --- 保存機能（全体バックアップ ＆ フォルダ指定保存） ---
         document.getElementById('btn-export').onclick = () => {
             const d = new Date();
-            const defaultFilename = `notes_backup_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+            const defaultFilename = `all_notes_backup_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.json`;
             
-            // ファイル名を入力させるプロンプトを表示
-            let fileName = prompt('保存するファイル名を入力してください（拡張子不要）:', defaultFilename);
-            if (fileName === null) return; // キャンセルされたら中断
-            
-            if (fileName.trim() === '') {
-                fileName = defaultFilename;
-            }
-            // 末尾に .json がなければ付与
-            if (!fileName.endsWith('.json')) {
-                fileName += '.json';
-            }
+            let fileName = prompt('保存するファイル名を入力してください:', defaultFilename);
+            if (fileName === null) return;
+            if (fileName.trim() === '') fileName = defaultFilename;
+            if (!fileName.endsWith('.json')) fileName += '.json';
 
             const blob = new Blob([JSON.stringify(appData)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            a.click();
+            URL.revokeObjectURL(url);
+        };
+
+        // 選択中のフォルダ（またはルート）とその中のデータだけを絞り込んで保存する機能
+        document.getElementById('btn-export-folder').onclick = () => {
+            let targetFolderName = "ルート";
+            let subFolders = [];
+            let subNotes = [];
+
+            if (currentFolderId !== null) {
+                const folder = appData.folders.find(f => f.id === currentFolderId);
+                if (folder) targetFolderName = folder.name;
+                
+                // 再帰的に子フォルダ・子ノートを収集する場合の簡略版（直下＋必要に応じ）
+                // ここでは分かりやすく「現在のフォルダ階層に含まれるデータ」をまとめる例とします
+                subFolders = appData.folders.filter(f => f.id === currentFolderId || f.parentId === currentFolderId);
+                subNotes = appData.notes.filter(n => n.folderId === currentFolderId);
+            } else {
+                subFolders = appData.folders.filter(f => f.parentId === null);
+                subNotes = appData.notes.filter(n => !n.folderId);
+            }
+
+            const exportData = {
+                folders: subFolders,
+                notes: subNotes
+            };
+
+            const d = new Date();
+            const defaultFilename = `${targetFolderName}_backup_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.json`;
+
+            let fileName = prompt(`「${targetFolderName}」のデータを保存します。ファイル名を入力してください:`, defaultFilename);
+            if (fileName === null) return;
+            if (fileName.trim() === '') fileName = defaultFilename;
+            if (!fileName.endsWith('.json')) fileName += '.json';
+
+            const blob = new Blob([JSON.stringify(exportData)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -728,15 +900,30 @@
                 try {
                     const imported = JSON.parse(event.target.result);
                     if (imported.notes) {
-                        if (confirm('現在のデータを上書きして読み込みますか？')) {
+                        const mode = confirm('「OK」を押すと既存データにマージ（追加）、「キャンセル」を押すと完全上書きしますか？\n(OK=追加, キャンセル=上書き)');
+                        if (mode) {
+                            // マージ処理
+                            if (imported.folders) {
+                                imported.folders.forEach(f => {
+                                    if (!appData.folders.some(existing => existing.id === f.id)) {
+                                        appData.folders.push(f);
+                                    }
+                                });
+                            }
+                            if (imported.notes) {
+                                imported.notes.forEach(n => {
+                                    appData.notes.push(n);
+                                });
+                            }
+                        } else {
                             appData = imported;
                             if(!appData.folders) appData.folders = [];
-                            saveData(); activeNoteId = null; currentFolderId = null;
-                            ui.toolbar.style.display = 'none'; ui.placeholder.style.display = 'block';
-                            ctx.clearRect(0,0,canvas.width,canvas.height);
-                            renderSidebar();
-                            alert('データを読み込みました。');
                         }
+                        saveData(); activeNoteId = null; currentFolderId = null;
+                        ui.toolbar.style.display = 'none'; ui.placeholder.style.display = 'block';
+                        ctx.clearRect(0,0,canvas.width,canvas.height);
+                        renderSidebar();
+                        alert('データを読み込みました。');
                     } else { alert('無効なファイル形式です。'); }
                 } catch(err) { alert('ファイルの読み込みに失敗しました。'); }
             };
