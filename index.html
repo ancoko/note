@@ -240,7 +240,6 @@
             top: 0;
             left: 0;
             cursor: crosshair;
-            /* 蛍光ペンが背景（方眼やPDF）に対して自然に重なる設定 */
             mix-blend-mode: multiply;
         }
 
@@ -282,10 +281,13 @@
             <button class="btn-toggle-sidebar" id="btn-toggle">≡</button>
             <div class="tool-group">
                 <button class="btn-tool active" id="btn-pen">ペン</button>
-                <button class="btn-tool" id="btn-line">直線</button>
                 <button class="btn-tool" id="btn-marker">蛍光ペン</button>
                 <button class="btn-tool" id="btn-eraser">消しゴム</button>
                 <button class="btn-tool" id="btn-hand" title="画面移動・拡大縮小">✋ 画面移動</button>
+            </div>
+            <div class="tool-group">
+                <!-- 直線モード切り替えボタン -->
+                <button class="btn-tool" id="btn-straight" title="直線モード切替">📏 直線モード</button>
             </div>
             <div class="tool-group">
                 <button class="btn-tool" id="btn-undo" title="一つ戻る" disabled>↩ 戻る</button>
@@ -329,6 +331,7 @@
 
         let isDrawing = false;
         let currentTool = 'pen';
+        let isStraightMode = false; // 直線モードの状態
         let currentColor = '#172b4d';
         let currentSize = 3;
 
@@ -351,10 +354,10 @@
         const toolbar = document.getElementById('toolbar');
         const placeholder = document.getElementById('placeholder');
         const btnPen = document.getElementById('btn-pen');
-        const btnLine = document.getElementById('btn-line');
         const btnMarker = document.getElementById('btn-marker');
         const btnEraser = document.getElementById('btn-eraser');
         const btnHand = document.getElementById('btn-hand');
+        const btnStraight = document.getElementById('btn-straight');
         const btnUndo = document.getElementById('btn-undo');
         const btnRedo = document.getElementById('btn-redo');
         const colorPicker = document.getElementById('color-picker');
@@ -532,7 +535,7 @@
             if (path.points.length < 2) return;
             ctx.beginPath();
             
-            if (path.tool === 'line') {
+            if (path.isStraight) {
                 ctx.moveTo(path.points[0].x, path.points[0].y);
                 ctx.lineTo(path.points[path.points.length - 1].x, path.points[path.points.length - 1].y);
             } else {
@@ -544,7 +547,7 @@
 
             ctx.strokeStyle = path.color;
             ctx.lineWidth = path.width;
-            ctx.lineCap = (path.tool === 'marker' || path.tool === 'line') ? 'square' : 'round';
+            ctx.lineCap = (path.tool === 'marker' || path.isStraight) ? 'square' : 'round';
             ctx.lineJoin = 'round';
 
             if (path.tool === 'eraser') {
@@ -686,11 +689,12 @@
                 return;
             }
 
-            if (pointers.size === 1 && (currentTool === 'pen' || currentTool === 'line' || currentTool === 'marker' || currentTool === 'eraser')) {
+            if (pointers.size === 1 && (currentTool === 'pen' || currentTool === 'marker' || currentTool === 'eraser')) {
                 isDrawing = true;
                 const pos = getCanvasPos(e);
                 currentPath = {
                     tool: currentTool,
+                    isStraight: isStraightMode,
                     color: currentTool === 'eraser' ? 'rgba(0,0,0,1)' : currentColor,
                     width: currentSize,
                     points: [pos]
@@ -731,7 +735,7 @@
 
             if (isDrawing && currentPath) {
                 const pos = getCanvasPos(e);
-                if (currentTool === 'line') {
+                if (currentPath.isStraight) {
                     if (currentPath.points.length > 1) {
                         currentPath.points[1] = pos;
                     } else {
@@ -782,7 +786,6 @@
         function setTool(tool) {
             currentTool = tool;
             btnPen.classList.toggle('active', tool === 'pen');
-            btnLine.classList.toggle('active', tool === 'line');
             btnMarker.classList.toggle('active', tool === 'marker');
             btnEraser.classList.toggle('active', tool === 'eraser');
             btnHand.classList.toggle('active', tool === 'hand');
@@ -791,17 +794,22 @@
             if (tool === 'marker') {
                 brushSize.value = 25;
                 currentSize = 25;
-            } else if (tool === 'pen' || tool === 'line') {
+            } else if (tool === 'pen') {
                 brushSize.value = 3;
                 currentSize = 3;
             }
         }
 
         btnPen.onclick = () => setTool('pen');
-        btnLine.onclick = () => setTool('line');
         btnMarker.onclick = () => setTool('marker');
         btnEraser.onclick = () => setTool('eraser');
         btnHand.onclick = () => setTool('hand');
+
+        // 直線モードボタンの切り替え
+        btnStraight.onclick = () => {
+            isStraightMode = !isStraightMode;
+            btnStraight.classList.toggle('active', isStraightMode);
+        };
 
         colorPicker.oninput = (e) => { currentColor = e.target.value; };
         brushSize.oninput = (e) => { currentSize = Number(e.target.value); };
