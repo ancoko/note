@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>手書きノートアプリ - 複数ページ＆フォルダ保存対応版</title>
+    <title>手書きノートアプリ - ローカルフォルダ直接保存＆複数ページ対応</title>
     <!-- PDF.js の読み込み -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
@@ -134,8 +134,8 @@
         </div>
         <div class="note-list" id="item-list"></div>
         <div class="sidebar-footer">
-            <button class="btn-sys" id="btn-export">💾 全体バックアップ</button>
-            <button class="btn-sys" id="btn-export-folder">💾 フォルダ保存</button>
+            <button class="btn-sys" id="btn-select-dir">📂 保存先フォルダ選択</button>
+            <button class="btn-sys" id="btn-export">💾 フォルダに直接保存</button>
             <button class="btn-sys" id="btn-import-trigger">📂 読込</button>
             <input type="file" id="backup-loader" accept=".json" style="display: none;">
         </div>
@@ -209,7 +209,8 @@
 
         let currentFolderId = null;
         let activeNoteId = null;
-        let currentPageIndex = 0; // 現在表示しているページ番号（0始まり）
+        let currentPageIndex = 0;
+        let targetDirectoryHandle = null; // 端末側フォルダのハンドル
 
         let toolSettings = {
             pen: { color: '#172b4d', size: 3 },
@@ -250,7 +251,8 @@
             bgSelect: document.getElementById('bg-select'),
             btnUndo: document.getElementById('btn-undo'),
             btnRedo: document.getElementById('btn-redo'),
-            pageIndicator: document.getElementById('page-indicator')
+            pageIndicator: document.getElementById('page-indicator'),
+            btnSelectDir: document.getElementById('btn-select-dir')
         };
 
         function saveData() { localStorage.setItem('my_handwritten_data', JSON.stringify(appData)); }
@@ -294,7 +296,6 @@
             childNotes.forEach(note => {
                 const item = document.createElement('div');
                 item.className = `list-item ${note.id === activeNoteId ? 'active' : ''}`;
-                
                 const noteName = note.name || '無題ノート';
 
                 item.innerHTML = `
@@ -378,12 +379,10 @@
             initNoteView(resetPos); renderSidebar();
         }
 
-        // --- 複数ページ対応の初期化＆ビュー更新 ---
         function initNoteView(resetPos = false) {
             const note = appData.notes.find(n => n.id === activeNoteId);
             if (!note) return;
 
-            // 互換性対応（古い単一ページデータを移行）
             if (!note.pages) {
                 note.pages = [{
                     paperSize: note.paperSize || 'a4',
@@ -755,7 +754,7 @@
             }
         };
 
-        // --- 複数ページPDF対応を含むファイル読み込み ---
+        // --- PDF読み込み処理の修正（確実にプレビュー・表示されるよう対応） ---
         const fileLoader = document.getElementById('file-loader');
         document.getElementById('btn-load-file').onclick = () => fileLoader.click();
         
@@ -772,9 +771,11 @@
                         const pdf = await pdfjsLib.getDocument(new Uint8Array(this.result)).promise;
                         const numPages = pdf.numPages;
                         
+                        let firstLoadedIndex = currentPageIndex;
+
                         for (let i = 1; i <= numPages; i++) {
                             const page = await pdf.getPage(i);
-                            const viewport = page.getViewport({ scale: 2.0 });
+                            const viewport = page.getViewport({ scale: 1.5 });
                             const tempCanvas = document.createElement('canvas');
                             tempCanvas.width = viewport.width; tempCanvas.height = viewport.height;
                             await page.render({ canvasContext: tempCanvas.getContext('2d'), viewport: viewport }).promise;
@@ -790,7 +791,6 @@
                                 redoPaths: []
                             };
 
-                            // 現在のページの直後に追加するか、最初の空ページに割り当てる
                             if (i === 1 && note.pages[currentPageIndex].paths.length === 0 && !note.pages[currentPageIndex].bgImage) {
                                 note.pages[currentPageIndex] = newPageObj;
                             } else {
@@ -802,7 +802,10 @@
                         saveData(); 
                         initNoteView(true);
                         alert(`全 ${numPages} ページのPDFを取り込みました。`);
-                    } catch (err) { alert('PDFの読み込みに失敗しました。'); }
+                    } catch (err) { 
+                        console.error(err);
+                        alert('PDFの読み込みに失敗しました。'); 
+                    }
                 };
                 reader.readAsArrayBuffer(file);
             } else if (file.type.startsWith('image/')) {
@@ -830,8 +833,25 @@
             paperContainer.style.transform = currentTransform;
         };
 
-        // --- 保存機能（全体バックアップ ＆ フォルダ指定保存） ---
-        document.getElementById('btn-export').onclick = () => {
+        // --- 端末側フォルダの指定保存（File System Access API） ---
+        ui.btnSelectDir.onclick = async () => {
+            if (!window.showDirectoryPicker) {
+                alert('お使いのブラウザはローカルフォルダの直接指定に対応していません（ChromeやEdgeをご利用ください）。従来のダウンロード方式を利用します。');
+                return;
+            }
+            try {
+                targetDirectoryHandle = await window.showDirectoryPicker();
+                alert('保存先フォルダが設定されました。今後は「フォルダに直接保存」ボタンでこのフォルダに直接上書き保存されます。');
+                ui.btnSelectDir.textContent = '📂 保存先変更';
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    console.error(err);
+                    alert('フォルダの選択に失敗しました。');
+                }
+            }
+        };
+
+        document.getElementById('btn-export').onclick = async () => {
             const d = new Date();
             const defaultFilename = `all_notes_backup_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.json`;
             
@@ -840,48 +860,25 @@
             if (fileName.trim() === '') fileName = defaultFilename;
             if (!fileName.endsWith('.json')) fileName += '.json';
 
-            const blob = new Blob([JSON.stringify(appData)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = fileName;
-            a.click();
-            URL.revokeObjectURL(url);
-        };
+            const jsonData = JSON.stringify(appData, null, 2);
 
-        // 選択中のフォルダ（またはルート）とその中のデータだけを絞り込んで保存する機能
-        document.getElementById('btn-export-folder').onclick = () => {
-            let targetFolderName = "ルート";
-            let subFolders = [];
-            let subNotes = [];
-
-            if (currentFolderId !== null) {
-                const folder = appData.folders.find(f => f.id === currentFolderId);
-                if (folder) targetFolderName = folder.name;
-                
-                // 再帰的に子フォルダ・子ノートを収集する場合の簡略版（直下＋必要に応じ）
-                // ここでは分かりやすく「現在のフォルダ階層に含まれるデータ」をまとめる例とします
-                subFolders = appData.folders.filter(f => f.id === currentFolderId || f.parentId === currentFolderId);
-                subNotes = appData.notes.filter(n => n.folderId === currentFolderId);
-            } else {
-                subFolders = appData.folders.filter(f => f.parentId === null);
-                subNotes = appData.notes.filter(n => !n.folderId);
+            // フォルダハンドルが取得できている場合は、直接端末フォルダへ保存する
+            if (targetDirectoryHandle && window.showDirectoryPicker) {
+                try {
+                    const fileHandle = await targetDirectoryHandle.getFileHandle(fileName, { create: true });
+                    const writableStream = await fileHandle.createWritable();
+                    await writableStream.write(jsonData);
+                    await writableStream.close();
+                    alert(`指定されたフォルダに「${fileName}」を直接保存しました。`);
+                    return;
+                } catch (err) {
+                    console.error(err);
+                    alert('フォルダへの書き込み権限がありません。通常のダウンロードに切り替えます。');
+                }
             }
 
-            const exportData = {
-                folders: subFolders,
-                notes: subNotes
-            };
-
-            const d = new Date();
-            const defaultFilename = `${targetFolderName}_backup_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.json`;
-
-            let fileName = prompt(`「${targetFolderName}」のデータを保存します。ファイル名を入力してください:`, defaultFilename);
-            if (fileName === null) return;
-            if (fileName.trim() === '') fileName = defaultFilename;
-            if (!fileName.endsWith('.json')) fileName += '.json';
-
-            const blob = new Blob([JSON.stringify(exportData)], { type: 'application/json' });
+            // フォールバック（通常のブラウザダウンロード）
+            const blob = new Blob([jsonData], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -902,7 +899,6 @@
                     if (imported.notes) {
                         const mode = confirm('「OK」を押すと既存データにマージ（追加）、「キャンセル」を押すと完全上書きしますか？\n(OK=追加, キャンセル=上書き)');
                         if (mode) {
-                            // マージ処理
                             if (imported.folders) {
                                 imported.folders.forEach(f => {
                                     if (!appData.folders.some(existing => existing.id === f.id)) {
