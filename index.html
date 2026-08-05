@@ -157,7 +157,7 @@
             flex-shrink: 0;
         }
 
-        .btn-tool, select.btn-tool {
+        .btn-tool {
             padding: 6px 12px;
             border: 1px solid var(--border-color);
             background: white;
@@ -187,35 +187,55 @@
             width: 70px;
         }
 
+        /* キャンバスラッパー（スクロール・移動用） */
         .canvas-wrapper {
             flex: 1;
             position: relative;
-            background-color: #ffffff;
-            overflow: hidden;
+            background-color: #e3e5e8;
+            overflow: auto;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 40px;
+            /* 二本指でのスムーズなスクロール等を有効化 */
+            touch-action: pan-x pan-y pinch-zoom;
         }
 
-        /* 背景パターンのクラス定義 */
-        .canvas-wrapper.bg-grid {
+        /* ノート用紙本体 */
+        .note-sheet {
+            position: relative;
+            background-color: #ffffff;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            flex-shrink: 0;
+        }
+
+        /* 背景パターン */
+        .note-sheet.bg-grid {
             background-image: radial-gradient(#d1d5db 1.5px, transparent 1.5px);
             background-size: 24px 24px;
         }
 
-        .canvas-wrapper.bg-lined {
+        .note-sheet.bg-lined {
             background-image: linear-gradient(to bottom, #e5e7eb 1px, transparent 1px);
             background-size: 100% 32px;
         }
 
-        .canvas-wrapper.bg-blank {
+        .note-sheet.bg-blank {
             background-image: none;
         }
 
         canvas {
             display: block;
-            position: absolute;
-            top: 0;
-            left: 0;
             cursor: crosshair;
-            touch-action: none;
+            touch-action: none; /* ペンの描画時はブラウザ標準のジェスチャーを無効化 */
+        }
+
+        /* 移動モード時のカーソル切替 */
+        .canvas-wrapper.hand-mode canvas {
+            cursor: grab;
+        }
+        .canvas-wrapper.hand-mode canvas:active {
+            cursor: grabbing;
         }
 
         .placeholder {
@@ -229,6 +249,81 @@
             text-align: center;
             z-index: 2;
             width: 80%;
+        }
+
+        /* 新規作成モーダル */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            display: none;
+        }
+
+        .modal-box {
+            background: white;
+            padding: 24px;
+            border-radius: 8px;
+            width: 320px;
+            max-width: 90%;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        }
+
+        .modal-box h3 {
+            margin-bottom: 16px;
+            font-size: 1.2rem;
+        }
+
+        .modal-group {
+            margin-bottom: 14px;
+        }
+
+        .modal-group label {
+            display: block;
+            font-size: 0.85rem;
+            color: #5e6c84;
+            margin-bottom: 6px;
+            font-weight: bold;
+        }
+
+        .modal-group select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 1rem;
+            background: white;
+        }
+
+        .modal-buttons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 20px;
+        }
+
+        .btn-cancel {
+            background: #f4f5f7;
+            border: 1px solid var(--border-color);
+            padding: 8px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .btn-submit {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 8px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
         }
     </style>
 </head>
@@ -250,27 +345,50 @@
             <div class="tool-group">
                 <button class="btn-tool active" id="btn-pen">ペン</button>
                 <button class="btn-tool" id="btn-eraser">消しゴム</button>
+                <button class="btn-tool" id="btn-hand">✋ 移動</button>
             </div>
             <div class="tool-group">
                 <input type="color" id="color-picker" value="#172b4d">
                 <input type="range" id="brush-size" min="1" max="30" value="3">
-            </div>
-            <div class="tool-group">
-                <select id="bg-select" class="btn-tool">
-                    <option value="grid">方眼</option>
-                    <option value="lined">横罫線</option>
-                    <option value="blank">白紙</option>
-                </select>
             </div>
             <div class="tool-group" style="margin-left: auto;">
                 <button class="btn-tool" id="btn-clear" style="color: #de350b; border-color: #de350b;">全消去</button>
             </div>
         </div>
 
-        <div class="canvas-wrapper bg-grid" id="canvas-wrapper">
+        <div class="canvas-wrapper" id="canvas-wrapper">
             <button class="btn-toggle-sidebar" id="btn-toggle-floating" style="position: absolute; top: 12px; left: 12px; z-index: 10;">≡ メニュー</button>
             <div class="placeholder" id="placeholder">「≡ メニュー」からノートを選択または新規作成してください</div>
-            <canvas id="canvas"></canvas>
+            <div class="note-sheet" id="note-sheet" style="display: none;">
+                <canvas id="canvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- 新規作成モーダル -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-box">
+            <h3>新規ノート作成</h3>
+            <div class="modal-group">
+                <label>ノートの大きさ</label>
+                <select id="input-size">
+                    <option value="b5">B5サイズ</option>
+                    <option value="a4">A4サイズ</option>
+                    <option value="infinite">無限（画面サイズ）</option>
+                </select>
+            </div>
+            <div class="modal-group">
+                <label>罫線の種類</label>
+                <select id="input-bg">
+                    <option value="grid">方眼</option>
+                    <option value="lined">横罫線</option>
+                    <option value="blank">白紙</option>
+                </select>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn-cancel" id="modal-cancel">キャンセル</button>
+                <button class="btn-submit" id="modal-create">作成</button>
+            </div>
         </div>
     </div>
 
@@ -279,62 +397,72 @@
         let activeNoteId = null;
 
         let isDrawing = false;
-        let currentTool = 'pen';
+        let isPanning = false;
+        let startX = 0, startY = 0;
+        let currentTool = 'pen'; // 'pen', 'eraser', 'hand'
         let currentColor = '#172b4d';
         let currentSize = 3;
 
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
         const wrapper = document.getElementById('canvas-wrapper');
+        const sheet = document.getElementById('note-sheet');
         const noteListEl = document.getElementById('note-list');
         const btnNew = document.getElementById('btn-new');
         const toolbar = document.getElementById('toolbar');
         const placeholder = document.getElementById('placeholder');
         const btnPen = document.getElementById('btn-pen');
         const btnEraser = document.getElementById('btn-eraser');
+        const btnHand = document.getElementById('btn-hand');
         const colorPicker = document.getElementById('color-picker');
         const brushSize = document.getElementById('brush-size');
-        const bgSelect = document.getElementById('bg-select');
         const btnClear = document.getElementById('btn-clear');
         const btnToggle = document.getElementById('btn-toggle');
         const btnToggleFloating = document.getElementById('btn-toggle-floating');
 
+        const modalOverlay = document.getElementById('modal-overlay');
+        const inputSize = document.getElementById('input-size');
+        const inputBg = document.getElementById('input-bg');
+        const modalCancel = document.getElementById('modal-cancel');
+        const modalCreate = document.getElementById('modal-create');
+
         function toggleSidebar() {
             document.body.classList.toggle('sidebar-closed');
-            setTimeout(resizeCanvas, 300);
         }
         btnToggle.onclick = toggleSidebar;
         btnToggleFloating.onclick = toggleSidebar;
-
-        function resizeCanvas() {
-            const width = wrapper.clientWidth;
-            const height = wrapper.clientHeight;
-            
-            canvas.width = width;
-            canvas.height = height;
-            canvas.style.width = width + 'px';
-            canvas.style.height = height + 'px';
-
-            if (activeNoteId) {
-                drawActiveNote();
-            }
-        }
-        window.addEventListener('resize', resizeCanvas);
-        resizeCanvas();
 
         function saveNotesToStorage() {
             localStorage.setItem('my_handwritten_notes', JSON.stringify(notes));
         }
 
-        function updateBackground(bgType) {
-            wrapper.classList.remove('bg-grid', 'bg-lined', 'bg-blank');
-            if (bgType === 'lined') {
-                wrapper.classList.add('bg-lined');
-            } else if (bgType === 'blank') {
-                wrapper.classList.add('bg-blank');
+        function setupCanvasSizeAndBg(note) {
+            sheet.className = 'note-sheet';
+            sheet.classList.add(`bg-${note.bg || 'grid'}`);
+
+            let w, h;
+            const sizeType = note.size || 'infinite';
+
+            if (sizeType === 'a4') {
+                w = 794;
+                h = 1123;
+            } else if (sizeType === 'b5') {
+                w = 680;
+                h = 960;
             } else {
-                wrapper.classList.add('bg-grid');
+                w = Math.max(wrapper.clientWidth - 80, 500);
+                h = Math.max(wrapper.clientHeight - 80, 700);
             }
+
+            sheet.style.width = w + 'px';
+            sheet.style.height = h + 'px';
+
+            canvas.width = w;
+            canvas.height = h;
+            canvas.style.width = w + 'px';
+            canvas.style.height = h + 'px';
+
+            drawActiveNote();
         }
 
         function renderNoteList() {
@@ -346,7 +474,8 @@
                 item.className = `note-item ${note.id === activeNoteId ? 'active' : ''}`;
                 
                 const dateObj = new Date(note.updatedAt);
-                const titleText = `ノート ${notes.length - index} (${dateObj.getMonth() + 1}/${dateObj.getDate()} ${String(dateObj.getHours()).padStart(2, '0')}:${String(dateObj.getMinutes()).padStart(2, '0')})`;
+                const sizeLabel = note.size === 'a4' ? 'A4' : note.size === 'b5' ? 'B5' : '無限';
+                const titleText = `${sizeLabel}ノート (${dateObj.getMonth() + 1}/${dateObj.getDate()} ${String(dateObj.getHours()).padStart(2, '0')}:${String(dateObj.getMinutes()).padStart(2, '0'})}`;
 
                 const span = document.createElement('span');
                 span.textContent = titleText;
@@ -355,7 +484,6 @@
                     selectNote(note.id);
                     if (window.innerWidth <= 768) {
                         document.body.classList.add('sidebar-closed');
-                        setTimeout(resizeCanvas, 300);
                     }
                 };
                 item.appendChild(span);
@@ -378,31 +506,38 @@
             toolbar.style.display = 'flex';
             btnToggleFloating.style.display = 'none';
             placeholder.style.display = 'none';
-            
+            sheet.style.display = 'block';
+
             const note = notes.find(n => n.id === id);
             if (note) {
-                if (!note.bg) note.bg = 'grid'; // デフォルトは方眼
-                bgSelect.value = note.bg;
-                updateBackground(note.bg);
+                setupCanvasSizeAndBg(note);
             }
 
             renderNoteList();
-            resizeCanvas();
         }
 
         btnNew.onclick = () => {
+            modalOverlay.style.display = 'flex';
+        };
+
+        modalCancel.onclick = () => {
+            modalOverlay.style.display = 'none';
+        };
+
+        modalCreate.onclick = () => {
             const newNote = {
                 id: Date.now().toString(),
                 updatedAt: Date.now(),
-                bg: 'grid',
+                size: inputSize.value,
+                bg: inputBg.value,
                 paths: []
             };
             notes.push(newNote);
             saveNotesToStorage();
+            modalOverlay.style.display = 'none';
             selectNote(newNote.id);
             if (window.innerWidth <= 768) {
                 document.body.classList.add('sidebar-closed');
-                setTimeout(resizeCanvas, 300);
             }
         };
 
@@ -416,6 +551,7 @@
                 toolbar.style.display = 'none';
                 btnToggleFloating.style.display = 'block';
                 placeholder.style.display = 'block';
+                sheet.style.display = 'none';
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
             }
             renderNoteList();
@@ -464,11 +600,18 @@
             };
         }
 
-        function startDraw(e) {
+        // --- マウス操作・タッチ操作のハンドリング ---
+        canvas.addEventListener('mousedown', (e) => {
             if (!activeNoteId) return;
+            if (currentTool === 'hand') {
+                isPanning = true;
+                startX = e.clientX;
+                startY = e.clientY;
+                return;
+            }
+
             isDrawing = true;
             const pos = getPos(e);
-
             currentPath = {
                 tool: currentTool,
                 color: currentTool === 'eraser' ? 'rgba(0,0,0,1)' : currentColor,
@@ -477,13 +620,21 @@
             };
 
             const note = notes.find(n => n.id === activeNoteId);
-            if (note) {
-                note.paths.push(currentPath);
-            }
+            if (note) note.paths.push(currentPath);
             e.preventDefault();
-        }
+        });
 
-        function drawing(e) {
+        window.addEventListener('mousemove', (e) => {
+            if (isPanning) {
+                const dx = e.clientX - startX;
+                const dy = e.clientY - startY;
+                wrapper.scrollLeft -= dx;
+                wrapper.scrollTop -= dy;
+                startX = e.clientX;
+                startY = e.clientY;
+                return;
+            }
+
             if (!isDrawing || !activeNoteId || !currentPath) return;
             const pos = getPos(e);
             currentPath.points.push(pos);
@@ -508,9 +659,10 @@
             ctx.globalCompositeOperation = 'source-over';
 
             e.preventDefault();
-        }
+        });
 
-        function endDraw() {
+        window.addEventListener('mouseup', () => {
+            if (isPanning) isPanning = false;
             if (isDrawing && activeNoteId) {
                 isDrawing = false;
                 const note = notes.find(n => n.id === activeNoteId);
@@ -520,42 +672,114 @@
                     renderNoteList();
                 }
             }
+        });
+
+        // タッチ操作（二本指の場合は移動/スクロールを優先、一本指かつ移動モード時はパン操作）
+        canvas.addEventListener('touchstart', (e) => {
+            if (!activeNoteId) return;
+            
+            // 二本指タッチの場合は、描画をキャンセルしてブラウザ標準のスクロール/ピンチ操作に任せる
+            if (e.touches.length >= 2) {
+                isDrawing = false;
+                isPanning = false;
+                return;
+            }
+
+            if (currentTool === 'hand') {
+                isPanning = true;
+                startX = e.touches[0].clientX;
+                startY = e.touches[0].clientY;
+                e.preventDefault();
+                return;
+            }
+
+            isDrawing = true;
+            const pos = getPos(e);
+            currentPath = {
+                tool: currentTool,
+                color: currentTool === 'eraser' ? 'rgba(0,0,0,1)' : currentColor,
+                width: currentSize,
+                points: [pos]
+            };
+
+            const note = notes.find(n => n.id === activeNoteId);
+            if (note) note.paths.push(currentPath);
+            e.preventDefault();
+        }, { passive: false });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (e.touches.length >= 2) return; // 二本指のときは何もしない（ブラウザに委譲）
+
+            if (isPanning) {
+                const dx = e.touches[0].clientX - startX;
+                const dy = e.touches[0].clientY - startY;
+                wrapper.scrollLeft -= dx;
+                wrapper.scrollTop -= dy;
+                startX = e.touches[0].clientX;
+                startY = e.touches[0].clientY;
+                e.preventDefault();
+                return;
+            }
+
+            if (!isDrawing || !activeNoteId || !currentPath) return;
+            const pos = getPos(e);
+            currentPath.points.push(pos);
+
+            const p1 = currentPath.points[currentPath.points.length - 2];
+            const p2 = currentPath.points[currentPath.points.length - 1];
+
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.strokeStyle = currentPath.color;
+            ctx.lineWidth = currentPath.width;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            if (currentPath.tool === 'eraser') {
+                ctx.globalCompositeOperation = 'destination-out';
+            } else {
+                ctx.globalCompositeOperation = 'source-over';
+            }
+            ctx.stroke();
+            ctx.globalCompositeOperation = 'source-over';
+
+            e.preventDefault();
+        }, { passive: false });
+
+        window.addEventListener('touchend', () => {
+            if (isPanning) isPanning = false;
+            if (isDrawing && activeNoteId) {
+                isDrawing = false;
+                const note = notes.find(n => n.id === activeNoteId);
+                if (note) {
+                    note.updatedAt = Date.now();
+                    saveNotesToStorage();
+                    renderNoteList();
+                }
+            }
+        });
+
+        // ツール切り替えボタンの処理
+        function setActiveTool(tool) {
+            currentTool = tool;
+            btnPen.classList.toggle('active', tool === 'pen');
+            btnEraser.classList.toggle('active', tool === 'eraser');
+            btnHand.classList.toggle('active', tool === 'hand');
+
+            if (tool === 'hand') {
+                wrapper.classList.add('hand-mode');
+            } else {
+                wrapper.classList.remove('hand-mode');
+            }
         }
 
-        canvas.addEventListener('mousedown', startDraw);
-        canvas.addEventListener('mousemove', drawing);
-        window.addEventListener('mouseup', endDraw);
-
-        canvas.addEventListener('touchstart', startDraw, { passive: false });
-        canvas.addEventListener('touchmove', drawing, { passive: false });
-        window.addEventListener('touchend', endDraw);
-
-        btnPen.onclick = () => {
-            currentTool = 'pen';
-            btnPen.classList.add('active');
-            btnEraser.classList.remove('active');
-        };
-
-        btnEraser.onclick = () => {
-            currentTool = 'eraser';
-            btnEraser.classList.add('active');
-            btnPen.classList.remove('active');
-        };
+        btnPen.onclick = () => setActiveTool('pen');
+        btnEraser.onclick = () => setActiveTool('eraser');
+        btnHand.onclick = () => setActiveTool('hand');
 
         colorPicker.oninput = (e) => { currentColor = e.target.value; };
         brushSize.oninput = (e) => { currentSize = e.target.value; };
-
-        bgSelect.onchange = (e) => {
-            if (!activeNoteId) return;
-            const bgType = e.target.value;
-            updateBackground(bgType);
-            const note = notes.find(n => n.id === activeNoteId);
-            if (note) {
-                note.bg = bgType;
-                note.updatedAt = Date.now();
-                saveNotesToStorage();
-            }
-        };
 
         btnClear.onclick = () => {
             if (!activeNoteId) return;
