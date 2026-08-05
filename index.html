@@ -28,17 +28,26 @@
             background-color: var(--bg-color);
             color: var(--text-color);
             display: flex;
+            position: relative;
         }
 
         /* サイドバー */
         .sidebar {
-            width: 260px;
+            width: 280px;
             background-color: var(--sidebar-bg);
             border-right: 1px solid var(--border-color);
             display: flex;
             flex-direction: column;
             flex-shrink: 0;
-            z-index: 10;
+            z-index: 20;
+            height: 100%;
+            transition: transform 0.25s ease;
+        }
+
+        /* モバイル等でサイドバーを非表示にするクラス */
+        body.sidebar-closed .sidebar {
+            transform: translateX(-100%);
+            position: absolute;
         }
 
         .sidebar-header {
@@ -116,6 +125,7 @@
             height: 100%;
             position: relative;
             overflow: hidden;
+            min-width: 0;
         }
 
         .toolbar {
@@ -124,17 +134,28 @@
             border-bottom: 1px solid var(--border-color);
             display: flex;
             align-items: center;
-            padding: 0 20px;
-            gap: 15px;
+            padding: 0 15px;
+            gap: 10px;
             flex-shrink: 0;
             z-index: 5;
             overflow-x: auto;
+        }
+
+        .btn-toggle-sidebar {
+            padding: 6px 10px;
+            border: 1px solid var(--border-color);
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+            flex-shrink: 0;
         }
 
         .tool-group {
             display: flex;
             align-items: center;
             gap: 8px;
+            flex-shrink: 0;
         }
 
         .btn-tool {
@@ -144,6 +165,7 @@
             border-radius: 4px;
             cursor: pointer;
             font-size: 0.9rem;
+            white-space: nowrap;
         }
 
         .btn-tool.active {
@@ -154,8 +176,8 @@
 
         input[type="color"] {
             border: none;
-            width: 32px;
-            height: 32px;
+            width: 30px;
+            height: 30px;
             cursor: pointer;
             background: none;
             padding: 0;
@@ -163,7 +185,7 @@
 
         input[type="range"] {
             cursor: pointer;
-            width: 90px;
+            width: 70px;
         }
 
         .canvas-wrapper {
@@ -194,10 +216,11 @@
             pointer-events: none;
             text-align: center;
             z-index: 2;
+            width: 80%;
         }
     </style>
 </head>
-<body>
+<body class="sidebar-closed">
 
     <!-- サイドバー：ノート一覧 -->
     <div class="sidebar">
@@ -211,6 +234,7 @@
     <!-- メインエディタエリア -->
     <div class="main-content">
         <div class="toolbar" id="toolbar" style="display: none;">
+            <button class="btn-toggle-sidebar" id="btn-toggle">≡</button>
             <div class="tool-group">
                 <button class="btn-tool active" id="btn-pen">ペン</button>
                 <button class="btn-tool" id="btn-eraser">消しゴム</button>
@@ -225,7 +249,9 @@
         </div>
 
         <div class="canvas-wrapper" id="canvas-wrapper">
-            <div class="placeholder" id="placeholder">左上の「+ 新規」からノートを作成してください</div>
+            <!-- ツールバー非表示時のメニューボタン（プレビュー用） -->
+            <button class="btn-toggle-sidebar" id="btn-toggle-floating" style="position: absolute; top: 12px; left: 12px; z-index: 10;">≡ メニュー</button>
+            <div class="placeholder" id="placeholder">「≡ メニュー」からノートを選択または新規作成してください</div>
             <canvas id="canvas"></canvas>
         </div>
     </div>
@@ -251,6 +277,16 @@
         const colorPicker = document.getElementById('color-picker');
         const brushSize = document.getElementById('brush-size');
         const btnClear = document.getElementById('btn-clear');
+        const btnToggle = document.getElementById('btn-toggle');
+        const btnToggleFloating = document.getElementById('btn-toggle-floating');
+
+        // サイドバー開閉切り替え
+        function toggleSidebar() {
+            document.body.classList.toggle('sidebar-closed');
+            setTimeout(resizeCanvas, 300); // アニメーション後にキャンバスサイズを再調整
+        }
+        btnToggle.onclick = toggleSidebar;
+        btnToggleFloating.onclick = toggleSidebar;
 
         // キャンバスのピクセル解像度をラッパーの大きさに正確に合わせる
         function resizeCanvas() {
@@ -287,7 +323,14 @@
                 const span = document.createElement('span');
                 span.textContent = titleText;
                 span.style.flex = '1';
-                span.onclick = () => selectNote(note.id);
+                span.onclick = () => {
+                    selectNote(note.id);
+                    // スマホ等の場合は選択時にサイドバーを自動で閉じる
+                    if (window.innerWidth <= 768) {
+                        document.body.classList.add('sidebar-closed');
+                        setTimeout(resizeCanvas, 300);
+                    }
+                };
                 item.appendChild(span);
 
                 const delBtn = document.createElement('button');
@@ -306,9 +349,10 @@
         function selectNote(id) {
             activeNoteId = id;
             toolbar.style.display = 'flex';
+            btnToggleFloating.style.display = 'none';
             placeholder.style.display = 'none';
             renderNoteList();
-            drawActiveNote();
+            resizeCanvas();
         }
 
         btnNew.onclick = () => {
@@ -320,6 +364,10 @@
             notes.push(newNote);
             saveNotesToStorage();
             selectNote(newNote.id);
+            if (window.innerWidth <= 768) {
+                document.body.classList.add('sidebar-closed');
+                setTimeout(resizeCanvas, 300);
+            }
         };
 
         function deleteNote(id) {
@@ -330,6 +378,7 @@
             if (activeNoteId === id) {
                 activeNoteId = null;
                 toolbar.style.display = 'none';
+                btnToggleFloating.style.display = 'block';
                 placeholder.style.display = 'block';
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
             }
