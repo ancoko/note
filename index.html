@@ -52,6 +52,7 @@
         body.sidebar-closed .sidebar {
             transform: translateX(-100%);
             position: absolute;
+            pointer-events: none;
         }
 
         .sidebar-header {
@@ -239,6 +240,8 @@
             top: 0;
             left: 0;
             cursor: crosshair;
+            /* 蛍光ペンが背景（方眼やPDF）に対して自然に重なる設定 */
+            mix-blend-mode: multiply;
         }
 
         .canvas-wrapper.mode-hand canvas {
@@ -279,6 +282,7 @@
             <button class="btn-toggle-sidebar" id="btn-toggle">≡</button>
             <div class="tool-group">
                 <button class="btn-tool active" id="btn-pen">ペン</button>
+                <button class="btn-tool" id="btn-line">直線</button>
                 <button class="btn-tool" id="btn-marker">蛍光ペン</button>
                 <button class="btn-tool" id="btn-eraser">消しゴム</button>
                 <button class="btn-tool" id="btn-hand" title="画面移動・拡大縮小">✋ 画面移動</button>
@@ -288,8 +292,8 @@
                 <button class="btn-tool" id="btn-redo" title="一つ進む" disabled>↪ 進む</button>
             </div>
             <div class="tool-group">
-                <input type="color" id="color-picker" value="#ffeb3b">
-                <input type="range" id="brush-size" min="1" max="50" value="15">
+                <input type="color" id="color-picker" value="#172b4d">
+                <input type="range" id="brush-size" min="1" max="50" value="3">
             </div>
             <div class="tool-group">
                 <select id="size-select" class="btn-tool">
@@ -324,9 +328,9 @@
         let activeNoteId = null;
 
         let isDrawing = false;
-        let currentTool = 'pen'; // 'pen', 'marker', 'eraser', 'hand'
-        let currentColor = '#ffeb3b';
-        let currentSize = 15;
+        let currentTool = 'pen';
+        let currentColor = '#172b4d';
+        let currentSize = 3;
 
         let panX = 0;
         let panY = 0;
@@ -347,6 +351,7 @@
         const toolbar = document.getElementById('toolbar');
         const placeholder = document.getElementById('placeholder');
         const btnPen = document.getElementById('btn-pen');
+        const btnLine = document.getElementById('btn-line');
         const btnMarker = document.getElementById('btn-marker');
         const btnEraser = document.getElementById('btn-eraser');
         const btnHand = document.getElementById('btn-hand');
@@ -385,7 +390,13 @@
             bgSelect.value = note.bg;
             applyBackground(note);
 
-            const sizeDef = PAPER_SIZES[note.paperSize] || PAPER_SIZES.a4;
+            let sizeDef;
+            if (note.paperSize === 'free' && note.customWidth && note.customHeight) {
+                sizeDef = { width: note.customWidth, height: note.customHeight };
+            } else {
+                sizeDef = PAPER_SIZES[note.paperSize] || PAPER_SIZES.a4;
+            }
+
             canvas.width = sizeDef.width;
             canvas.height = sizeDef.height;
             canvas.style.width = sizeDef.width + 'px';
@@ -477,6 +488,8 @@
                 paperSize: 'a4',
                 bg: 'grid',
                 bgImage: null,
+                customWidth: null,
+                customHeight: null,
                 paths: [],
                 redoPaths: []
             };
@@ -518,21 +531,28 @@
         function drawPath(path) {
             if (path.points.length < 2) return;
             ctx.beginPath();
-            ctx.moveTo(path.points[0].x, path.points[0].y);
-            for (let i = 1; i < path.points.length; i++) {
-                ctx.lineTo(path.points[i].x, path.points[i].y);
+            
+            if (path.tool === 'line') {
+                ctx.moveTo(path.points[0].x, path.points[0].y);
+                ctx.lineTo(path.points[path.points.length - 1].x, path.points[path.points.length - 1].y);
+            } else {
+                ctx.moveTo(path.points[0].x, path.points[0].y);
+                for (let i = 1; i < path.points.length; i++) {
+                    ctx.lineTo(path.points[i].x, path.points[i].y);
+                }
             }
+
             ctx.strokeStyle = path.color;
             ctx.lineWidth = path.width;
-            ctx.lineCap = path.tool === 'marker' ? 'square' : 'round';
+            ctx.lineCap = (path.tool === 'marker' || path.tool === 'line') ? 'square' : 'round';
             ctx.lineJoin = 'round';
 
             if (path.tool === 'eraser') {
                 ctx.globalCompositeOperation = 'destination-out';
                 ctx.globalAlpha = 1.0;
             } else if (path.tool === 'marker') {
-                ctx.globalCompositeOperation = 'multiply'; // 重ね塗りしても見やすいように合成
-                ctx.globalAlpha = 0.35; // 蛍光ペンの透明度
+                ctx.globalCompositeOperation = 'multiply';
+                ctx.globalAlpha = 0.4;
             } else {
                 ctx.globalCompositeOperation = 'source-over';
                 ctx.globalAlpha = 1.0;
@@ -591,7 +611,7 @@
                     try {
                         const pdf = await pdfjsLib.getDocument(typedarray).promise;
                         const page = await pdf.getPage(1);
-                        const viewport = page.getViewport({ scale: 1.5 });
+                        const viewport = page.getViewport({ scale: 2.0 });
                         
                         const tempCanvas = document.createElement('canvas');
                         tempCanvas.width = viewport.width;
@@ -602,7 +622,8 @@
                         
                         note.bgImage = tempCanvas.toDataURL('image/jpeg');
                         note.paperSize = 'free';
-                        PAPER_SIZES.free = { width: viewport.width, height: viewport.height };
+                        note.customWidth = viewport.width;
+                        note.customHeight = viewport.height;
                         
                         note.updatedAt = Date.now();
                         saveNotesToStorage();
@@ -620,7 +641,8 @@
                     img.onload = function() {
                         note.bgImage = event.target.result;
                         note.paperSize = 'free';
-                        PAPER_SIZES.free = { width: img.width, height: img.height };
+                        note.customWidth = img.naturalWidth;
+                        note.customHeight = img.naturalHeight;
 
                         note.updatedAt = Date.now();
                         saveNotesToStorage();
@@ -664,7 +686,7 @@
                 return;
             }
 
-            if (pointers.size === 1 && (currentTool === 'pen' || currentTool === 'marker' || currentTool === 'eraser')) {
+            if (pointers.size === 1 && (currentTool === 'pen' || currentTool === 'line' || currentTool === 'marker' || currentTool === 'eraser')) {
                 isDrawing = true;
                 const pos = getCanvasPos(e);
                 currentPath = {
@@ -693,7 +715,7 @@
                     initialPinchDistance = dist;
                     initialScale = scale;
                 } else {
-                    const newScale = Math.min(Math.max(initialScale * (dist / initialPinchDistance), 0.2), 5.0);
+                    const newScale = Math.min(Math.max(initialScale * (dist / initialPinchDistance), 0.1), 10.0);
                     scale = newScale;
                     updateTransform();
                 }
@@ -709,8 +731,16 @@
 
             if (isDrawing && currentPath) {
                 const pos = getCanvasPos(e);
-                currentPath.points.push(pos);
-                drawPath(currentPath);
+                if (currentTool === 'line') {
+                    if (currentPath.points.length > 1) {
+                        currentPath.points[1] = pos;
+                    } else {
+                        currentPath.points.push(pos);
+                    }
+                } else {
+                    currentPath.points.push(pos);
+                }
+                drawActiveNote();
             }
         });
 
@@ -745,29 +775,30 @@
             e.preventDefault();
             const zoomFactor = 1.1;
             let newScale = e.deltaY < 0 ? scale * zoomFactor : scale / zoomFactor;
-            scale = Math.min(Math.max(newScale, 0.2), 5.0);
+            scale = Math.min(Math.max(newScale, 0.1), 10.0);
             updateTransform();
         }, { passive: false });
 
         function setTool(tool) {
             currentTool = tool;
             btnPen.classList.toggle('active', tool === 'pen');
+            btnLine.classList.toggle('active', tool === 'line');
             btnMarker.classList.toggle('active', tool === 'marker');
             btnEraser.classList.toggle('active', tool === 'eraser');
             btnHand.classList.toggle('active', tool === 'hand');
             wrapper.classList.toggle('mode-hand', tool === 'hand');
 
-            // ツール変更時にデフォルトの太さを調整（お好みで）
             if (tool === 'marker') {
-                brushSize.value = 20;
-                currentSize = 20;
-            } else if (tool === 'pen') {
+                brushSize.value = 25;
+                currentSize = 25;
+            } else if (tool === 'pen' || tool === 'line') {
                 brushSize.value = 3;
                 currentSize = 3;
             }
         }
 
         btnPen.onclick = () => setTool('pen');
+        btnLine.onclick = () => setTool('line');
         btnMarker.onclick = () => setTool('marker');
         btnEraser.onclick = () => setTool('eraser');
         btnHand.onclick = () => setTool('hand');
@@ -781,6 +812,10 @@
             const note = notes.find(n => n.id === activeNoteId);
             if (note) {
                 note.paperSize = newSize;
+                if (newSize !== 'free') {
+                    note.customWidth = null;
+                    note.customHeight = null;
+                }
                 note.updatedAt = Date.now();
                 saveNotesToStorage();
                 initNoteView(true);
@@ -794,9 +829,12 @@
             if (note) {
                 note.bg = bgType;
                 note.bgImage = null;
+                note.customWidth = null;
+                note.customHeight = null;
                 note.updatedAt = Date.now();
                 saveNotesToStorage();
                 applyBackground(note);
+                initNoteView(true);
             }
         };
 
