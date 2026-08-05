@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>手書きノートアプリ - 高機能版</title>
+    <title>手書きノートアプリ - 修正版</title>
     <!-- PDF.js の読み込み -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
@@ -94,7 +94,6 @@
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15); background-size: cover; background-position: center; background-repeat: no-repeat;
         }
 
-        /* 修正: 罫線のCSSを明確にストライプ状へ変更 */
         .paper-container.bg-grid { background-image: radial-gradient(#d1d5db 1.5px, transparent 1.5px); background-size: 24px 24px; }
         .paper-container.bg-lined { background-image: repeating-linear-gradient(transparent, transparent 31px, #cbd5e1 31px, #cbd5e1 32px); }
         .paper-container.bg-blank { background-image: none; }
@@ -112,7 +111,6 @@
             outline: none; resize: none; overflow: hidden; white-space: pre-wrap; word-wrap: break-word; line-height: 1.2; padding: 0;
         }
 
-        /* 印刷用スタイル */
         @media print {
             body * { visibility: hidden; }
             #paper-container, #paper-container * { visibility: visible; }
@@ -197,18 +195,12 @@
     </div>
 
     <script>
-        // --- データ構造 ---
-        // folders: { id, name, parentId }
-        // notes: { id, name, folderId, updatedAt, paperSize, bg, bgImage, customWidth, customHeight, paths, redoPaths }
-        
         let appData = JSON.parse(localStorage.getItem('my_handwritten_data')) || { folders: [], notes: [] };
-        // 旧バージョン互換性対応
         if (Array.isArray(appData)) { appData = { folders: [], notes: appData }; }
 
-        let currentFolderId = null; // null = root
+        let currentFolderId = null;
         let activeNoteId = null;
 
-        // ツール別の設定記憶（ペン、マーカー、文字の色と太さを独立）
         let toolSettings = {
             pen: { color: '#172b4d', size: 3 },
             marker: { color: '#ffff00', size: 25 },
@@ -252,7 +244,6 @@
 
         function saveData() { localStorage.setItem('my_handwritten_data', JSON.stringify(appData)); }
 
-        // --- サイドバーと階層レンダリング ---
         ui.btnToggle.onclick = ui.btnToggleFloating.onclick = () => {
             document.body.classList.toggle('sidebar-closed');
             setTimeout(updateTransform, 300);
@@ -261,7 +252,6 @@
         function renderSidebar() {
             ui.itemList.innerHTML = '';
             
-            // 親階層へ戻るボタン
             if (currentFolderId !== null) {
                 const backItem = document.createElement('div');
                 backItem.className = 'list-item';
@@ -274,7 +264,6 @@
                 ui.itemList.appendChild(backItem);
             }
 
-            // フォルダのレンダリング
             const childFolders = appData.folders.filter(f => f.parentId === currentFolderId);
             childFolders.forEach(folder => {
                 const item = document.createElement('div');
@@ -290,7 +279,6 @@
                 ui.itemList.appendChild(item);
             });
 
-            // ノートのレンダリング
             const childNotes = appData.notes.filter(n => (n.folderId || null) === currentFolderId).sort((a, b) => b.updatedAt - a.updatedAt);
             childNotes.forEach(note => {
                 const item = document.createElement('div');
@@ -318,7 +306,6 @@
 
         function escapeHTML(str) { return str.replace(/[&<>'"]/g, tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag])); }
 
-        // --- アイテム作成・削除・リネーム ---
         ui.btnNewFolder.onclick = () => {
             const name = prompt('新しいフォルダの名前を入力してください:', '新規フォルダ');
             if (name) {
@@ -353,7 +340,6 @@
         window.deleteFolder = (id, e) => {
             e.stopPropagation();
             if (!confirm('このフォルダと中身をすべて削除しますか？')) return;
-            // 再帰削除は省略し簡易的に直下のみ削除
             appData.notes = appData.notes.filter(n => n.folderId !== id);
             appData.folders = appData.folders.filter(f => f.id !== id);
             saveData(); renderSidebar();
@@ -372,8 +358,6 @@
             renderSidebar();
         };
 
-
-        // --- キャンバスとノート初期化 ---
         function selectNote(id, resetPos = false) {
             activeNoteId = id;
             ui.toolbar.style.display = 'flex'; ui.btnToggleFloating.style.display = 'none'; ui.placeholder.style.display = 'none';
@@ -417,7 +401,6 @@
 
         function updateTransform() {
             paperContainer.style.transform = `translate(calc(-50% + ${panX}px), calc(-50% + ${panY}px)) scale(${scale})`;
-            // テキスト入力中は位置がずれるので非表示
             if(textInput.style.display === 'block') textInput.style.display = 'none'; 
         }
 
@@ -428,7 +411,6 @@
             ui.btnRedo.disabled = !note.redoPaths || note.redoPaths.length === 0;
         }
 
-        // --- 描画ロジック ---
         function drawPath(path) {
             if (path.tool === 'text') {
                 ctx.font = `${path.size * 1.5}px sans-serif`;
@@ -468,15 +450,12 @@
 
         function drawActiveNote() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            const note = appData.notes.find(n => n.id === activeactiveNoteId); // Typo fix
             const currentNote = appData.notes.find(n => n.id === activeNoteId);
             if (!currentNote || !currentNote.paths) return;
             currentNote.paths.forEach(path => drawPath(path));
         }
 
-        // --- 入力・ツール処理 ---
         function setTool(tool) {
-            // 現在のツールの設定を保存
             if (['pen', 'marker', 'text'].includes(currentTool)) {
                 toolSettings[currentTool].color = ui.colorPicker.value;
                 toolSettings[currentTool].size = Number(ui.brushSize.value);
@@ -485,9 +464,8 @@
             currentTool = tool;
             ['pen', 'marker', 'text', 'eraser', 'hand'].forEach(t => document.getElementById('btn-' + t).classList.toggle('active', t === tool));
             wrapper.className = `canvas-wrapper mode-${tool}`;
-            textInput.style.display = 'none'; // ツール切り替えでテキスト入力リセット
+            textInput.style.display = 'none';
 
-            // 新しいツールの設定をUIに反映
             if (['pen', 'marker', 'text'].includes(tool)) {
                 ui.colorPicker.disabled = false;
                 ui.colorPicker.value = toolSettings[tool].color;
@@ -531,29 +509,30 @@
                 return;
             }
 
-            if (pointers.size === 1) {
+            if (currentTool === 'text') {
+                if (textInput.style.display === 'block' && textInput.value.trim() !== '') finalizeTextInput();
+                textInputPos = getCanvasPos(e);
+                textInput.style.display = 'block';
+                textInput.style.left = e.clientX + 'px';
+                textInput.style.top = e.clientY + 'px';
+                textInput.style.fontSize = (toolSettings.text.size * 1.5 * scale) + 'px';
+                textInput.style.color = toolSettings.text.color;
+                textInput.value = '';
+                setTimeout(() => textInput.focus(), 10);
+                return;
+            }
+
+            // ペン、蛍光ペン、消しゴムの描画開始
+            if (['pen', 'marker', 'eraser'].includes(currentTool)) {
+                isDrawing = true;
                 const pos = getCanvasPos(e);
-                if (currentTool === 'text') {
-                    // テキスト入力モード
-                    if (textInput.style.display === 'block' && textInput.value.trim() !== '') finalizeTextInput();
-                    textInputPos = pos;
-                    textInput.style.display = 'block';
-                    textInput.style.left = e.clientX + 'px';
-                    textInput.style.top = e.clientY + 'px';
-                    textInput.style.fontSize = (toolSettings.text.size * 1.5 * scale) + 'px';
-                    textInput.style.color = toolSettings.text.color;
-                    textInput.value = '';
-                    setTimeout(() => textInput.focus(), 10);
-                } else {
-                    isDrawing = true;
-                    currentPath = {
-                        tool: currentTool, isStraight: isStraightMode,
-                        color: currentTool === 'eraser' ? 'rgba(0,0,0,1)' : ui.colorPicker.value,
-                        width: Number(ui.brushSize.value), points: [pos]
-                    };
-                    const note = appData.notes.find(n => n.id === activeNoteId);
-                    if (note) { note.paths.push(currentPath); note.redoPaths = []; }
-                }
+                currentPath = {
+                    tool: currentTool, isStraight: isStraightMode,
+                    color: currentTool === 'eraser' ? 'rgba(0,0,0,1)' : ui.colorPicker.value,
+                    width: Number(ui.brushSize.value), points: [pos]
+                };
+                const note = appData.notes.find(n => n.id === activeNoteId);
+                if (note) { note.paths.push(currentPath); note.redoPaths = []; }
             }
         });
 
@@ -602,7 +581,6 @@
             updateTransform();
         }, { passive: false });
 
-        // --- 文字入力確定 ---
         function finalizeTextInput() {
             if (textInput.style.display !== 'block' || textInput.value.trim() === '') {
                 textInput.style.display = 'none'; return;
@@ -619,7 +597,6 @@
         }
         textInput.addEventListener('blur', finalizeTextInput);
 
-        // --- ツールバーアクション ---
         ui.btnUndo.onclick = () => {
             const note = appData.notes.find(n => n.id === activeNoteId);
             if (!note || !note.paths || note.paths.length === 0) return;
@@ -646,13 +623,12 @@
             if (note) {
                 note.paperSize = e.target.value;
                 if (note.paperSize === 'free') {
-                    // フリーサイズ選択時に幅と高さを入力させる
                     const w = prompt('紙の幅を入力してください(px):', '1200');
                     const h = prompt('紙の高さを入力してください(px):', '1600');
                     if(w && h && !isNaN(w) && !isNaN(h)) {
                         note.customWidth = parseInt(w); note.customHeight = parseInt(h);
                     } else {
-                        ui.sizeSelect.value = 'a4'; note.paperSize = 'a4'; // キャンセル時は戻す
+                        ui.sizeSelect.value = 'a4'; note.paperSize = 'a4';
                     }
                 } else {
                     note.customWidth = null; note.customHeight = null;
@@ -667,7 +643,6 @@
             if (note) { note.bg = e.target.value; note.bgImage = null; note.updatedAt = Date.now(); saveData(); initNoteView(true); }
         };
 
-        // --- ファイルロード (PDF/画像) ---
         const fileLoader = document.getElementById('file-loader');
         document.getElementById('btn-load-file').onclick = () => fileLoader.click();
         
@@ -710,17 +685,14 @@
             fileLoader.value = '';
         };
 
-        // --- 印刷機能 ---
         document.getElementById('btn-print').onclick = () => {
             if (!activeNoteId) return;
-            // 変形をリセットして印刷キューへ送付し、戻す
             const currentTransform = paperContainer.style.transform;
             paperContainer.style.transform = 'none';
             window.print();
             paperContainer.style.transform = currentTransform;
         };
 
-        // --- バックアップ（保存・読込）機能 ---
         document.getElementById('btn-export').onclick = () => {
             const blob = new Blob([JSON.stringify(appData)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
@@ -758,10 +730,8 @@
             backupLoader.value = '';
         };
 
-        // 初期化処理
         setTool('pen');
         renderSidebar();
-
     </script>
 </body>
 </html>
