@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>手書きノートアプリ - 修正版</title>
+    <title>手書きノートアプリ - ファイル名指定対応版</title>
     <!-- PDF.js の読み込み -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
@@ -522,7 +522,6 @@
                 return;
             }
 
-            // ペン、蛍光ペン、消しゴムの描画開始
             if (['pen', 'marker', 'eraser'].includes(currentTool)) {
                 isDrawing = true;
                 const pos = getCanvasPos(e);
@@ -693,13 +692,28 @@
             paperContainer.style.transform = currentTransform;
         };
 
+        // --- 保存（ファイル名指定対応） ---
         document.getElementById('btn-export').onclick = () => {
+            const d = new Date();
+            const defaultFilename = `notes_backup_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+            
+            // ファイル名を入力させるプロンプトを表示
+            let fileName = prompt('保存するファイル名を入力してください（拡張子不要）:', defaultFilename);
+            if (fileName === null) return; // キャンセルされたら中断
+            
+            if (fileName.trim() === '') {
+                fileName = defaultFilename;
+            }
+            // 末尾に .json がなければ付与
+            if (!fileName.endsWith('.json')) {
+                fileName += '.json';
+            }
+
             const blob = new Blob([JSON.stringify(appData)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            const d = new Date();
-            a.download = `notes_backup_${d.getFullYear()}${d.getMonth()+1}${d.getDate()}.json`;
+            a.download = fileName;
             a.click();
             URL.revokeObjectURL(url);
         };
