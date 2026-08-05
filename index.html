@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>手書きノートアプリ</title>
+    <style>
+        :root {
+            --bg-color: #f4f5f7;
+            --sidebar-bg: #ffffff;
+            --border-color: #dfe1e6;
+            --primary-color: #0052cc;
+            --text-color: #172b4d;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+        }
+
+        /* サイドバー */
+        .sidebar {
+            width: 260px;
+            background-color: var(--sidebar-bg);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            z-index: 10;
+        }
+
+        .sidebar-header {
+            padding: 16px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .sidebar-header h2 {
+            font-size: 1.1rem;
+        }
+
+        .btn-new {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 8px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+
+        .btn-new:hover {
+            opacity: 0.9;
+        }
+
+        .note-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .note-item {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.1s;
+        }
+
+        .note-item:hover {
+            background-color: #ebecf0;
+        }
+
+        .note-item.active {
+            background-color: #deebff;
+            color: var(--primary-color);
+            font-weight: bold;
+        }
+
+        .btn-delete-item {
+            background: none;
+            border: none;
+            color: #de350b;
+            cursor: pointer;
+            font-size: 1rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        .btn-delete-item:hover {
+            background-color: #ffebe6;
+        }
+
+        /* メインエリア */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .toolbar {
+            height: 60px;
+            background: #ffffff;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            gap: 15px;
+            flex-shrink: 0;
+            z-index: 5;
+            overflow-x: auto;
+        }
+
+        .tool-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-tool {
+            padding: 6px 12px;
+            border: 1px solid var(--border-color);
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+
+        .btn-tool.active {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        input[type="color"] {
+            border: none;
+            width: 32px;
+            height: 32px;
+            cursor: pointer;
+            background: none;
+            padding: 0;
+        }
+
+        input[type="range"] {
+            cursor: pointer;
+            width: 90px;
+        }
+
+        .canvas-wrapper {
+            flex: 1;
+            position: relative;
+            background-color: #ffffff;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            cursor: crosshair;
+            touch-action: none;
+            background-image: radial-gradient(#d1d5db 1.5px, transparent 1.5px);
+            background-size: 24px 24px;
+        }
+
+        .placeholder {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #6b778c;
+            font-size: 1.1rem;
+            pointer-events: none;
+            text-align: center;
+            z-index: 2;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- サイドバー：ノート一覧 -->
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h2>ノート一覧</h2>
+            <button class="btn-new" id="btn-new">+ 新規</button>
+        </div>
+        <div class="note-list" id="note-list"></div>
+    </div>
+
+    <!-- メインエディタエリア -->
+    <div class="main-content">
+        <div class="toolbar" id="toolbar" style="display: none;">
+            <div class="tool-group">
+                <button class="btn-tool active" id="btn-pen">ペン</button>
+                <button class="btn-tool" id="btn-eraser">消しゴム</button>
+            </div>
+            <div class="tool-group">
+                <input type="color" id="color-picker" value="#172b4d">
+                <input type="range" id="brush-size" min="1" max="30" value="3">
+            </div>
+            <div class="tool-group" style="margin-left: auto;">
+                <button class="btn-tool" id="btn-clear" style="color: #de350b; border-color: #de350b;">全消去</button>
+            </div>
+        </div>
+
+        <div class="canvas-wrapper" id="canvas-wrapper">
+            <div class="placeholder" id="placeholder">左上の「+ 新規」からノートを作成してください</div>
+            <canvas id="canvas"></canvas>
+        </div>
+    </div>
+
+    <script>
+        let notes = JSON.parse(localStorage.getItem('my_handwritten_notes')) || [];
+        let activeNoteId = null;
+
+        let isDrawing = false;
+        let currentTool = 'pen';
+        let currentColor = '#172b4d';
+        let currentSize = 3;
+
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const wrapper = document.getElementById('canvas-wrapper');
+        const noteListEl = document.getElementById('note-list');
+        const btnNew = document.getElementById('btn-new');
+        const toolbar = document.getElementById('toolbar');
+        const placeholder = document.getElementById('placeholder');
+        const btnPen = document.getElementById('btn-pen');
+        const btnEraser = document.getElementById('btn-eraser');
+        const colorPicker = document.getElementById('color-picker');
+        const brushSize = document.getElementById('brush-size');
+        const btnClear = document.getElementById('btn-clear');
+
+        // キャンバスのピクセル解像度をラッパーの大きさに正確に合わせる
+        function resizeCanvas() {
+            const width = wrapper.clientWidth;
+            const height = wrapper.clientHeight;
+            
+            canvas.width = width;
+            canvas.height = height;
+            canvas.style.width = width + 'px';
+            canvas.style.height = height + 'px';
+
+            if (activeNoteId) {
+                drawActiveNote();
+            }
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        function saveNotesToStorage() {
+            localStorage.setItem('my_handwritten_notes', JSON.stringify(notes));
+        }
+
+        function renderNoteList() {
+            noteListEl.innerHTML = '';
+            notes.sort((a, b) => b.updatedAt - a.updatedAt);
+
+            notes.forEach((note, index) => {
+                const item = document.createElement('div');
+                item.className = `note-item ${note.id === activeNoteId ? 'active' : ''}`;
+                
+                const dateObj = new Date(note.updatedAt);
+                const titleText = `ノート ${notes.length - index} (${dateObj.getMonth() + 1}/${dateObj.getDate()} ${String(dateObj.getHours()).padStart(2, '0')}:${String(dateObj.getMinutes()).padStart(2, '0')})`;
+
+                const span = document.createElement('span');
+                span.textContent = titleText;
+                span.style.flex = '1';
+                span.onclick = () => selectNote(note.id);
+                item.appendChild(span);
+
+                const delBtn = document.createElement('button');
+                delBtn.className = 'btn-delete-item';
+                delBtn.textContent = '×';
+                delBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    deleteNote(note.id);
+                };
+                item.appendChild(delBtn);
+
+                noteListEl.appendChild(item);
+            });
+        }
+
+        function selectNote(id) {
+            activeNoteId = id;
+            toolbar.style.display = 'flex';
+            placeholder.style.display = 'none';
+            renderNoteList();
+            drawActiveNote();
+        }
+
+        btnNew.onclick = () => {
+            const newNote = {
+                id: Date.now().toString(),
+                updatedAt: Date.now(),
+                paths: []
+            };
+            notes.push(newNote);
+            saveNotesToStorage();
+            selectNote(newNote.id);
+        };
+
+        function deleteNote(id) {
+            if (!confirm('このノートを削除しますか？')) return;
+            notes = notes.filter(n => n.id !== id);
+            saveNotesToStorage();
+
+            if (activeNoteId === id) {
+                activeNoteId = null;
+                toolbar.style.display = 'none';
+                placeholder.style.display = 'block';
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+            renderNoteList();
+        }
+
+        function drawActiveNote() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const note = notes.find(n => n.id === activeNoteId);
+            if (!note || !note.paths) return;
+
+            note.paths.forEach(path => {
+                if (path.points.length < 2) return;
+                ctx.beginPath();
+                ctx.moveTo(path.points[0].x, path.points[0].y);
+                for (let i = 1; i < path.points.length; i++) {
+                    ctx.lineTo(path.points[i].x, path.points[i].y);
+                }
+                ctx.strokeStyle = path.color;
+                ctx.lineWidth = path.width;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+
+                if (path.tool === 'eraser') {
+                    ctx.globalCompositeOperation = 'destination-out';
+                } else {
+                    ctx.globalCompositeOperation = 'source-over';
+                }
+                ctx.stroke();
+            });
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
+        let currentPath = null;
+
+        function getPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            if (e.touches && e.touches[0]) {
+                return {
+                    x: e.touches[0].clientX - rect.left,
+                    y: e.touches[0].clientY - rect.top
+                };
+            }
+            return {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top
+            };
+        }
+
+        function startDraw(e) {
+            if (!activeNoteId) return;
+            isDrawing = true;
+            const pos = getPos(e);
+
+            currentPath = {
+                tool: currentTool,
+                color: currentTool === 'eraser' ? 'rgba(0,0,0,1)' : currentColor,
+                width: currentSize,
+                points: [pos]
+            };
+
+            const note = notes.find(n => n.id === activeNoteId);
+            if (note) {
+                note.paths.push(currentPath);
+            }
+            e.preventDefault();
+        }
+
+        function drawing(e) {
+            if (!isDrawing || !activeNoteId || !currentPath) return;
+            const pos = getPos(e);
+            currentPath.points.push(pos);
+
+            const p1 = currentPath.points[currentPath.points.length - 2];
+            const p2 = currentPath.points[currentPath.points.length - 1];
+
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.strokeStyle = currentPath.color;
+            ctx.lineWidth = currentPath.width;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            if (currentPath.tool === 'eraser') {
+                ctx.globalCompositeOperation = 'destination-out';
+            } else {
+                ctx.globalCompositeOperation = 'source-over';
+            }
+            ctx.stroke();
+            ctx.globalCompositeOperation = 'source-over';
+
+            e.preventDefault();
+        }
+
+        function endDraw() {
+            if (isDrawing && activeNoteId) {
+                isDrawing = false;
+                const note = notes.find(n => n.id === activeNoteId);
+                if (note) {
+                    note.updatedAt = Date.now();
+                    saveNotesToStorage();
+                    renderNoteList();
+                }
+            }
+        }
+
+        canvas.addEventListener('mousedown', startDraw);
+        canvas.addEventListener('mousemove', drawing);
+        window.addEventListener('mouseup', endDraw);
+
+        canvas.addEventListener('touchstart', startDraw, { passive: false });
+        canvas.addEventListener('touchmove', drawing, { passive: false });
+        window.addEventListener('touchend', endDraw);
+
+        btnPen.onclick = () => {
+            currentTool = 'pen';
+            btnPen.classList.add('active');
+            btnEraser.classList.remove('active');
+        };
+
+        btnEraser.onclick = () => {
+            currentTool = 'eraser';
+            btnEraser.classList.add('active');
+            btnPen.classList.remove('active');
+        };
+
+        colorPicker.oninput = (e) => { currentColor = e.target.value; };
+        brushSize.oninput = (e) => { currentSize = e.target.value; };
+
+        btnClear.onclick = () => {
+            if (!activeNoteId) return;
+            if (confirm('このノートの文字をすべて消去しますか？')) {
+                const note = notes.find(n => n.id === activeNoteId);
+                if (note) {
+                    note.paths = [];
+                    note.updatedAt = Date.now();
+                    saveNotesToStorage();
+                    drawActiveNote();
+                    renderNoteList();
+                }
+            }
+        };
+
+        if (notes.length > 0) {
+            renderNoteList();
+        }
+    </script>
+</body>
+</html>
