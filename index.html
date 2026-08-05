@@ -44,7 +44,6 @@
             transition: transform 0.25s ease;
         }
 
-        /* モバイル等でサイドバーを非表示にするクラス */
         body.sidebar-closed .sidebar {
             transform: translateX(-100%);
             position: absolute;
@@ -158,7 +157,7 @@
             flex-shrink: 0;
         }
 
-        .btn-tool {
+        .btn-tool, select.btn-tool {
             padding: 6px 12px;
             border: 1px solid var(--border-color);
             background: white;
@@ -195,6 +194,21 @@
             overflow: hidden;
         }
 
+        /* 背景パターンのクラス定義 */
+        .canvas-wrapper.bg-grid {
+            background-image: radial-gradient(#d1d5db 1.5px, transparent 1.5px);
+            background-size: 24px 24px;
+        }
+
+        .canvas-wrapper.bg-lined {
+            background-image: linear-gradient(to bottom, #e5e7eb 1px, transparent 1px);
+            background-size: 100% 32px;
+        }
+
+        .canvas-wrapper.bg-blank {
+            background-image: none;
+        }
+
         canvas {
             display: block;
             position: absolute;
@@ -202,8 +216,6 @@
             left: 0;
             cursor: crosshair;
             touch-action: none;
-            background-image: radial-gradient(#d1d5db 1.5px, transparent 1.5px);
-            background-size: 24px 24px;
         }
 
         .placeholder {
@@ -243,13 +255,19 @@
                 <input type="color" id="color-picker" value="#172b4d">
                 <input type="range" id="brush-size" min="1" max="30" value="3">
             </div>
+            <div class="tool-group">
+                <select id="bg-select" class="btn-tool">
+                    <option value="grid">方眼</option>
+                    <option value="lined">横罫線</option>
+                    <option value="blank">白紙</option>
+                </select>
+            </div>
             <div class="tool-group" style="margin-left: auto;">
                 <button class="btn-tool" id="btn-clear" style="color: #de350b; border-color: #de350b;">全消去</button>
             </div>
         </div>
 
-        <div class="canvas-wrapper" id="canvas-wrapper">
-            <!-- ツールバー非表示時のメニューボタン（プレビュー用） -->
+        <div class="canvas-wrapper bg-grid" id="canvas-wrapper">
             <button class="btn-toggle-sidebar" id="btn-toggle-floating" style="position: absolute; top: 12px; left: 12px; z-index: 10;">≡ メニュー</button>
             <div class="placeholder" id="placeholder">「≡ メニュー」からノートを選択または新規作成してください</div>
             <canvas id="canvas"></canvas>
@@ -276,19 +294,18 @@
         const btnEraser = document.getElementById('btn-eraser');
         const colorPicker = document.getElementById('color-picker');
         const brushSize = document.getElementById('brush-size');
+        const bgSelect = document.getElementById('bg-select');
         const btnClear = document.getElementById('btn-clear');
         const btnToggle = document.getElementById('btn-toggle');
         const btnToggleFloating = document.getElementById('btn-toggle-floating');
 
-        // サイドバー開閉切り替え
         function toggleSidebar() {
             document.body.classList.toggle('sidebar-closed');
-            setTimeout(resizeCanvas, 300); // アニメーション後にキャンバスサイズを再調整
+            setTimeout(resizeCanvas, 300);
         }
         btnToggle.onclick = toggleSidebar;
         btnToggleFloating.onclick = toggleSidebar;
 
-        // キャンバスのピクセル解像度をラッパーの大きさに正確に合わせる
         function resizeCanvas() {
             const width = wrapper.clientWidth;
             const height = wrapper.clientHeight;
@@ -309,6 +326,17 @@
             localStorage.setItem('my_handwritten_notes', JSON.stringify(notes));
         }
 
+        function updateBackground(bgType) {
+            wrapper.classList.remove('bg-grid', 'bg-lined', 'bg-blank');
+            if (bgType === 'lined') {
+                wrapper.classList.add('bg-lined');
+            } else if (bgType === 'blank') {
+                wrapper.classList.add('bg-blank');
+            } else {
+                wrapper.classList.add('bg-grid');
+            }
+        }
+
         function renderNoteList() {
             noteListEl.innerHTML = '';
             notes.sort((a, b) => b.updatedAt - a.updatedAt);
@@ -325,7 +353,6 @@
                 span.style.flex = '1';
                 span.onclick = () => {
                     selectNote(note.id);
-                    // スマホ等の場合は選択時にサイドバーを自動で閉じる
                     if (window.innerWidth <= 768) {
                         document.body.classList.add('sidebar-closed');
                         setTimeout(resizeCanvas, 300);
@@ -351,6 +378,14 @@
             toolbar.style.display = 'flex';
             btnToggleFloating.style.display = 'none';
             placeholder.style.display = 'none';
+            
+            const note = notes.find(n => n.id === id);
+            if (note) {
+                if (!note.bg) note.bg = 'grid'; // デフォルトは方眼
+                bgSelect.value = note.bg;
+                updateBackground(note.bg);
+            }
+
             renderNoteList();
             resizeCanvas();
         }
@@ -359,6 +394,7 @@
             const newNote = {
                 id: Date.now().toString(),
                 updatedAt: Date.now(),
+                bg: 'grid',
                 paths: []
             };
             notes.push(newNote);
@@ -508,6 +544,18 @@
 
         colorPicker.oninput = (e) => { currentColor = e.target.value; };
         brushSize.oninput = (e) => { currentSize = e.target.value; };
+
+        bgSelect.onchange = (e) => {
+            if (!activeNoteId) return;
+            const bgType = e.target.value;
+            updateBackground(bgType);
+            const note = notes.find(n => n.id === activeNoteId);
+            if (note) {
+                note.bg = bgType;
+                note.updatedAt = Date.now();
+                saveNotesToStorage();
+            }
+        };
 
         btnClear.onclick = () => {
             if (!activeNoteId) return;
