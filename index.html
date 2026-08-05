@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>手書きノートアプリ</title>
+    <!-- PDF.js の読み込み -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
     <style>
         :root {
             --bg-color: #f4f5f7;
@@ -173,6 +178,11 @@
             border-color: var(--primary-color);
         }
 
+        .btn-tool:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
         input[type="color"] {
             border: none;
             width: 30px;
@@ -195,7 +205,7 @@
             touch-action: none;
         }
 
-        /* 用紙コンテナ（サイズに応じた実用紙エリア） */
+        /* 用紙コンテナ */
         .paper-container {
             position: absolute;
             top: 50%;
@@ -203,6 +213,9 @@
             transform-origin: 0 0;
             background-color: #ffffff;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
         }
 
         /* 背景パターンのクラス定義 */
@@ -266,12 +279,17 @@
             <button class="btn-toggle-sidebar" id="btn-toggle">≡</button>
             <div class="tool-group">
                 <button class="btn-tool active" id="btn-pen">ペン</button>
+                <button class="btn-tool" id="btn-marker">蛍光ペン</button>
                 <button class="btn-tool" id="btn-eraser">消しゴム</button>
                 <button class="btn-tool" id="btn-hand" title="画面移動・拡大縮小">✋ 画面移動</button>
             </div>
             <div class="tool-group">
-                <input type="color" id="color-picker" value="#172b4d">
-                <input type="range" id="brush-size" min="1" max="30" value="3">
+                <button class="btn-tool" id="btn-undo" title="一つ戻る" disabled>↩ 戻る</button>
+                <button class="btn-tool" id="btn-redo" title="一つ進む" disabled>↪ 進む</button>
+            </div>
+            <div class="tool-group">
+                <input type="color" id="color-picker" value="#ffeb3b">
+                <input type="range" id="brush-size" min="1" max="50" value="15">
             </div>
             <div class="tool-group">
                 <select id="size-select" class="btn-tool">
@@ -284,6 +302,8 @@
                     <option value="lined">横罫線</option>
                     <option value="blank">白紙</option>
                 </select>
+                <input type="file" id="file-loader" accept="image/jpeg,image/png,application/pdf" style="display: none;">
+                <button class="btn-tool" id="btn-load-file">📄 PDF/画像読み込み</button>
             </div>
             <div class="tool-group" style="margin-left: auto;">
                 <button class="btn-tool" id="btn-clear" style="color: #de350b; border-color: #de350b;">全消去</button>
@@ -304,19 +324,17 @@
         let activeNoteId = null;
 
         let isDrawing = false;
-        let currentTool = 'pen'; // 'pen', 'eraser', 'hand'
-        let currentColor = '#172b4d';
-        let currentSize = 3;
+        let currentTool = 'pen'; // 'pen', 'marker', 'eraser', 'hand'
+        let currentColor = '#ffeb3b';
+        let currentSize = 15;
 
-        // ビューポート（パン・ズーム）の状態
         let panX = 0;
         let panY = 0;
         let scale = 1;
 
-        // 用紙サイズ定義 (px単位 @ 1倍)
         const PAPER_SIZES = {
-            a4: { width: 842, height: 1191 },  // A4縦 (72dpiベース等適宜)
-            b5: { width: 709, height: 1003 }, // B5縦
+            a4: { width: 842, height: 1191 },
+            b5: { width: 709, height: 1003 },
             free: { width: 1200, height: 1600 }
         };
 
@@ -329,12 +347,17 @@
         const toolbar = document.getElementById('toolbar');
         const placeholder = document.getElementById('placeholder');
         const btnPen = document.getElementById('btn-pen');
+        const btnMarker = document.getElementById('btn-marker');
         const btnEraser = document.getElementById('btn-eraser');
         const btnHand = document.getElementById('btn-hand');
+        const btnUndo = document.getElementById('btn-undo');
+        const btnRedo = document.getElementById('btn-redo');
         const colorPicker = document.getElementById('color-picker');
         const brushSize = document.getElementById('brush-size');
         const sizeSelect = document.getElementById('size-select');
         const bgSelect = document.getElementById('bg-select');
+        const fileLoader = document.getElementById('file-loader');
+        const btnLoadFile = document.getElementById('btn-load-file');
         const btnClear = document.getElementById('btn-clear');
         const btnToggle = document.getElementById('btn-toggle');
         const btnToggleFloating = document.getElementById('btn-toggle-floating');
@@ -356,10 +379,11 @@
 
             if (!note.paperSize) note.paperSize = 'a4';
             if (!note.bg) note.bg = 'grid';
+            if (!note.redoPaths) note.redoPaths = [];
 
             sizeSelect.value = note.paperSize;
             bgSelect.value = note.bg;
-            updateBackground(note.bg);
+            applyBackground(note);
 
             const sizeDef = PAPER_SIZES[note.paperSize] || PAPER_SIZES.a4;
             canvas.width = sizeDef.width;
@@ -370,7 +394,6 @@
             paperContainer.style.height = sizeDef.height + 'px';
 
             if (resetPos) {
-                // 初期表示時は画面中央に配置＆全体が収まるように自動縮小
                 panX = 0;
                 panY = 0;
                 const wrapperW = wrapper.clientWidth;
@@ -382,16 +405,22 @@
 
             updateTransform();
             drawActiveNote();
+            updateUndoRedoButtons();
         }
 
-        function updateBackground(bgType) {
+        function applyBackground(note) {
             paperContainer.classList.remove('bg-grid', 'bg-lined', 'bg-blank');
-            if (bgType === 'lined') {
-                paperContainer.classList.add('bg-lined');
-            } else if (bgType === 'blank') {
-                paperContainer.classList.add('bg-blank');
+            if (note.bgImage) {
+                paperContainer.style.backgroundImage = `url(${note.bgImage})`;
             } else {
-                paperContainer.classList.add('bg-grid');
+                paperContainer.style.backgroundImage = '';
+                if (note.bg === 'lined') {
+                    paperContainer.classList.add('bg-lined');
+                } else if (note.bg === 'blank') {
+                    paperContainer.classList.add('bg-blank');
+                } else {
+                    paperContainer.classList.add('bg-grid');
+                }
             }
         }
 
@@ -447,7 +476,9 @@
                 updatedAt: Date.now(),
                 paperSize: 'a4',
                 bg: 'grid',
-                paths: []
+                bgImage: null,
+                paths: [],
+                redoPaths: []
             };
             notes.push(newNote);
             saveNotesToStorage();
@@ -477,36 +508,136 @@
             localStorage.setItem('my_handwritten_notes', JSON.stringify(notes));
         }
 
+        function updateUndoRedoButtons() {
+            const note = notes.find(n => n.id === activeNoteId);
+            if (!note) return;
+            btnUndo.disabled = !note.paths || note.paths.length === 0;
+            btnRedo.disabled = !note.redoPaths || note.redoPaths.length === 0;
+        }
+
+        function drawPath(path) {
+            if (path.points.length < 2) return;
+            ctx.beginPath();
+            ctx.moveTo(path.points[0].x, path.points[0].y);
+            for (let i = 1; i < path.points.length; i++) {
+                ctx.lineTo(path.points[i].x, path.points[i].y);
+            }
+            ctx.strokeStyle = path.color;
+            ctx.lineWidth = path.width;
+            ctx.lineCap = path.tool === 'marker' ? 'square' : 'round';
+            ctx.lineJoin = 'round';
+
+            if (path.tool === 'eraser') {
+                ctx.globalCompositeOperation = 'destination-out';
+                ctx.globalAlpha = 1.0;
+            } else if (path.tool === 'marker') {
+                ctx.globalCompositeOperation = 'multiply'; // 重ね塗りしても見やすいように合成
+                ctx.globalAlpha = 0.35; // 蛍光ペンの透明度
+            } else {
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.globalAlpha = 1.0;
+            }
+            ctx.stroke();
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = 1.0;
+        }
+
         function drawActiveNote() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             const note = notes.find(n => n.id === activeNoteId);
             if (!note || !note.paths) return;
 
             note.paths.forEach(path => {
-                if (path.points.length < 2) return;
-                ctx.beginPath();
-                ctx.moveTo(path.points[0].x, path.points[0].y);
-                for (let i = 1; i < path.points.length; i++) {
-                    ctx.lineTo(path.points[i].x, path.points[i].y);
-                }
-                ctx.strokeStyle = path.color;
-                ctx.lineWidth = path.width;
-                ctx.lineCap = 'round';
-                ctx.lineJoin = 'round';
-
-                if (path.tool === 'eraser') {
-                    ctx.globalCompositeOperation = 'destination-out';
-                } else {
-                    ctx.globalCompositeOperation = 'source-over';
-                }
-                ctx.stroke();
+                drawPath(path);
             });
-            ctx.globalCompositeOperation = 'source-over';
         }
 
-        // --- ポインタ・タッチ・ズーム・パン制御 ---
+        btnUndo.onclick = () => {
+            const note = notes.find(n => n.id === activeNoteId);
+            if (!note || !note.paths || note.paths.length === 0) return;
+            const removed = note.paths.pop();
+            note.redoPaths.push(removed);
+            note.updatedAt = Date.now();
+            saveNotesToStorage();
+            drawActiveNote();
+            updateUndoRedoButtons();
+            renderNoteList();
+        };
+
+        btnRedo.onclick = () => {
+            const note = notes.find(n => n.id === activeNoteId);
+            if (!note || !note.redoPaths || note.redoPaths.length === 0) return;
+            const restored = note.redoPaths.pop();
+            note.paths.push(restored);
+            note.updatedAt = Date.now();
+            saveNotesToStorage();
+            drawActiveNote();
+            updateUndoRedoButtons();
+            renderNoteList();
+        };
+
+        btnLoadFile.onclick = () => fileLoader.click();
+
+        fileLoader.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file || !activeNoteId) return;
+            const note = notes.find(n => n.id === activeNoteId);
+            if (!note) return;
+
+            if (file.type === 'application/pdf') {
+                const reader = new FileReader();
+                reader.onload = async function() {
+                    const typedarray = new Uint8Array(this.result);
+                    try {
+                        const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                        const page = await pdf.getPage(1);
+                        const viewport = page.getViewport({ scale: 1.5 });
+                        
+                        const tempCanvas = document.createElement('canvas');
+                        tempCanvas.width = viewport.width;
+                        tempCanvas.height = viewport.height;
+                        const tempCtx = tempCanvas.getContext('2d');
+
+                        await page.render({ canvasContext: tempCtx, viewport: viewport }).promise;
+                        
+                        note.bgImage = tempCanvas.toDataURL('image/jpeg');
+                        note.paperSize = 'free';
+                        PAPER_SIZES.free = { width: viewport.width, height: viewport.height };
+                        
+                        note.updatedAt = Date.now();
+                        saveNotesToStorage();
+                        initNoteView(true);
+                        renderNoteList();
+                    } catch (err) {
+                        alert('PDFの読み込みに失敗しました。');
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            } else if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    const img = new Image();
+                    img.onload = function() {
+                        note.bgImage = event.target.result;
+                        note.paperSize = 'free';
+                        PAPER_SIZES.free = { width: img.width, height: img.height };
+
+                        note.updatedAt = Date.now();
+                        saveNotesToStorage();
+                        initNoteView(true);
+                        renderNoteList();
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            } else {
+                alert('対応している形式は JPEG, PNG, PDF のみです。');
+            }
+            fileLoader.value = '';
+        };
+
         let currentPath = null;
-        let pointers = new Map(); // マルチタッチ管理用
+        let pointers = new Map();
         let initialPinchDistance = null;
         let initialScale = 1;
         let isPanning = false;
@@ -526,7 +657,6 @@
             pointers.set(e.pointerId, e);
 
             if (currentTool === 'hand' || e.button === 1 || pointers.size === 2 || e.shiftKey) {
-                // パン（移動）開始
                 isPanning = true;
                 wrapper.classList.add('is-dragging');
                 startPanX = e.clientX - panX;
@@ -534,7 +664,7 @@
                 return;
             }
 
-            if (pointers.size === 1 && (currentTool === 'pen' || currentTool === 'eraser')) {
+            if (pointers.size === 1 && (currentTool === 'pen' || currentTool === 'marker' || currentTool === 'eraser')) {
                 isDrawing = true;
                 const pos = getCanvasPos(e);
                 currentPath = {
@@ -544,7 +674,10 @@
                     points: [pos]
                 };
                 const note = notes.find(n => n.id === activeNoteId);
-                if (note) note.paths.push(currentPath);
+                if (note) {
+                    note.paths.push(currentPath);
+                    note.redoPaths = [];
+                }
             }
         });
 
@@ -552,7 +685,6 @@
             if (!activeNoteId) return;
             pointers.set(e.pointerId, e);
 
-            // 二本指ピンチイン・ピンチアウトの処理
             if (pointers.size === 2) {
                 isDrawing = false;
                 const pts = Array.from(pointers.values());
@@ -578,25 +710,7 @@
             if (isDrawing && currentPath) {
                 const pos = getCanvasPos(e);
                 currentPath.points.push(pos);
-
-                const p1 = currentPath.points[currentPath.points.length - 2];
-                const p2 = currentPath.points[currentPath.points.length - 1];
-
-                ctx.beginPath();
-                ctx.moveTo(p1.x, p1.y);
-                ctx.lineTo(p2.x, p2.y);
-                ctx.strokeStyle = currentPath.color;
-                ctx.lineWidth = currentPath.width;
-                ctx.lineCap = 'round';
-                ctx.lineJoin = 'round';
-
-                if (currentPath.tool === 'eraser') {
-                    ctx.globalCompositeOperation = 'destination-out';
-                } else {
-                    ctx.globalCompositeOperation = 'source-over';
-                }
-                ctx.stroke();
-                ctx.globalCompositeOperation = 'source-over';
+                drawPath(currentPath);
             }
         });
 
@@ -612,6 +726,7 @@
                     if (note) {
                         note.updatedAt = Date.now();
                         saveNotesToStorage();
+                        updateUndoRedoButtons();
                         renderNoteList();
                     }
                 }
@@ -625,7 +740,6 @@
         wrapper.addEventListener('pointerup', endPointer);
         wrapper.addEventListener('pointercancel', endPointer);
 
-        // マウスホイールによる拡大縮小（ズーム）
         wrapper.addEventListener('wheel', (e) => {
             if (!activeNoteId) return;
             e.preventDefault();
@@ -635,23 +749,32 @@
             updateTransform();
         }, { passive: false });
 
-        // ツール切り替えボタン
         function setTool(tool) {
             currentTool = tool;
             btnPen.classList.toggle('active', tool === 'pen');
+            btnMarker.classList.toggle('active', tool === 'marker');
             btnEraser.classList.toggle('active', tool === 'eraser');
             btnHand.classList.toggle('active', tool === 'hand');
             wrapper.classList.toggle('mode-hand', tool === 'hand');
+
+            // ツール変更時にデフォルトの太さを調整（お好みで）
+            if (tool === 'marker') {
+                brushSize.value = 20;
+                currentSize = 20;
+            } else if (tool === 'pen') {
+                brushSize.value = 3;
+                currentSize = 3;
+            }
         }
 
         btnPen.onclick = () => setTool('pen');
+        btnMarker.onclick = () => setTool('marker');
         btnEraser.onclick = () => setTool('eraser');
         btnHand.onclick = () => setTool('hand');
 
         colorPicker.oninput = (e) => { currentColor = e.target.value; };
-        brushSize.oninput = (e) => { currentSize = e.target.value; };
+        brushSize.oninput = (e) => { currentSize = Number(e.target.value); };
 
-        // 用紙サイズ変更
         sizeSelect.onchange = (e) => {
             if (!activeNoteId) return;
             const newSize = e.target.value;
@@ -667,12 +790,13 @@
         bgSelect.onchange = (e) => {
             if (!activeNoteId) return;
             const bgType = e.target.value;
-            updateBackground(bgType);
             const note = notes.find(n => n.id === activeNoteId);
             if (note) {
                 note.bg = bgType;
+                note.bgImage = null;
                 note.updatedAt = Date.now();
                 saveNotesToStorage();
+                applyBackground(note);
             }
         };
 
@@ -682,9 +806,11 @@
                 const note = notes.find(n => n.id === activeNoteId);
                 if (note) {
                     note.paths = [];
+                    note.redoPaths = [];
                     note.updatedAt = Date.now();
                     saveNotesToStorage();
                     drawActiveNote();
+                    updateUndoRedoButtons();
                     renderNoteList();
                 }
             }
