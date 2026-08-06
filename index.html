@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>手書きノートアプリ - 全画面・多機能ボタン対応</title>
+    <title>手書きノートアプリ - フルスクリーン・最大幅対応</title>
     <!-- PDF.js の読み込み -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
@@ -71,7 +71,18 @@
         .toolbar {
             height: auto; min-height: 60px; background: #ffffff; border-bottom: 1px solid var(--border-color);
             display: flex; align-items: center; padding: 8px 15px; gap: 10px; flex-shrink: 0; z-index: 5; flex-wrap: wrap;
+            transition: transform 0.2s ease, opacity 0.2s ease;
         }
+        .toolbar.fullscreen-hidden {
+            transform: translateY(-100%);
+            height: 0;
+            min-height: 0;
+            padding: 0;
+            border: none;
+            overflow: hidden;
+            opacity: 0;
+        }
+
         .btn-toggle-sidebar { padding: 6px 10px; border: 1px solid var(--border-color); background: white; border-radius: 4px; cursor: pointer; font-size: 1rem; flex-shrink: 0; }
         
         .tool-group { display: flex; align-items: center; gap: 6px; flex-shrink: 0; border-right: 1px solid #dfe1e6; padding-right: 10px; }
@@ -249,12 +260,13 @@
         const wrapper = document.getElementById('canvas-wrapper');
         const paperContainer = document.getElementById('paper-container');
         const textInput = document.getElementById('text-input');
+        const toolbar = document.getElementById('toolbar');
         
         const ui = {
             itemList: document.getElementById('item-list'),
             btnNewNote: document.getElementById('btn-new-note'),
             btnNewFolder: document.getElementById('btn-new-folder'),
-            toolbar: document.getElementById('toolbar'),
+            toolbar: toolbar,
             placeholder: document.getElementById('placeholder'),
             btnToggle: document.getElementById('btn-toggle'),
             btnToggleFloating: document.getElementById('btn-toggle-floating'),
@@ -276,10 +288,14 @@
             setTimeout(updateTransform, 300);
         };
 
-        // --- 全画面表示切替 ---
+        // --- 全画面表示切替（上部バーの非表示と紙の最大幅拡大対応） ---
         ui.btnFullscreen.onclick = () => {
             if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen().catch(err => {
+                document.documentElement.requestFullscreen().then(() => {
+                    toolbar.classList.add('fullscreen-hidden');
+                    ui.btnToggleFloating.style.display = 'none'; // フローティングメニューボタンも全画面時は隠して最大化
+                    setTimeout(() => initNoteView(true), 250);
+                }).catch(err => {
                     alert('全画面表示を開始できませんでした。');
                 });
             } else {
@@ -288,6 +304,18 @@
                 }
             }
         };
+
+        document.addEventListener('fullscreenchange', () => {
+            if (!document.fullscreenElement) {
+                toolbar.classList.remove('fullscreen-hidden');
+                if (activeNoteId) {
+                    ui.btnToggleFloating.style.display = 'none';
+                } else {
+                    ui.btnToggleFloating.style.display = 'block';
+                }
+                setTimeout(() => initNoteView(true), 250);
+            }
+        });
 
         // --- 多機能ボタンのダブルタップ・トリプルタップ判定 ---
         let multiClickCount = 0;
@@ -317,7 +345,7 @@
                 }
                 multiClickCount = 0;
                 multiClickTimer = null;
-            }, 300); // 300ms以内に連続タップされたかを判定
+            }, 300);
         };
 
         function renderSidebar() {
@@ -424,7 +452,9 @@
             saveData();
             if (activeNoteId === id) {
                 activeNoteId = null;
-                ui.toolbar.style.display = 'none'; ui.btnToggleFloating.style.display = 'block'; ui.placeholder.style.display = 'block';
+                ui.toolbar.style.display = 'none'; 
+                ui.btnToggleFloating.style.display = document.fullscreenElement ? 'none' : 'block'; 
+                ui.placeholder.style.display = 'block';
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
             }
             renderSidebar();
@@ -433,7 +463,9 @@
         function selectNote(id, resetPos = false) {
             activeNoteId = id;
             currentPageIndex = 0;
-            ui.toolbar.style.display = 'flex'; ui.btnToggleFloating.style.display = 'none'; ui.placeholder.style.display = 'none';
+            ui.toolbar.style.display = 'flex'; 
+            ui.btnToggleFloating.style.display = 'none'; 
+            ui.placeholder.style.display = 'none';
             initNoteView(resetPos); renderSidebar();
         }
 
@@ -482,9 +514,11 @@
 
             if (resetPos) {
                 panX = 0; panY = 0;
-                const scaleX = (wrapper.clientWidth * 0.9) / sizeDef.width;
-                const scaleY = (wrapper.clientHeight * 0.9) / sizeDef.height;
-                scale = Math.min(scaleX, scaleY, 1);
+                // 全画面かつツールバー非表示時は余白を極力なくして画面いっぱいに拡大（係数を0.98に拡張）
+                const marginFactor = document.fullscreenElement ? 0.98 : 0.9;
+                const scaleX = (wrapper.clientWidth * marginFactor) / sizeDef.width;
+                const scaleY = (wrapper.clientHeight * marginFactor) / sizeDef.height;
+                scale = Math.min(scaleX, scaleY);
             }
             updateTransform(); 
             drawActiveNote(); 
