@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>手書きノートアプリ - ローカルフォルダ直接保存＆複数ページ対応</title>
+    <title>手書きノートアプリ - 全画面・多機能ボタン対応</title>
     <!-- PDF.js の読み込み -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
@@ -105,6 +105,16 @@
 
         .placeholder { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #6b778c; font-size: 1.1rem; pointer-events: none; text-align: center; z-index: 10; width: 80%; }
 
+        /* 多機能ボタン（右側の赤いボタン） */
+        #multi-func-btn {
+            position: absolute; right: 20px; bottom: 30px; width: 60px; height: 60px;
+            background-color: #de350b; color: white; border: none; border-radius: 50%;
+            font-size: 0.8rem; font-weight: bold; cursor: pointer; z-index: 40;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center;
+            user-select: none; transition: transform 0.1s;
+        }
+        #multi-func-btn:active { transform: scale(0.95); }
+
         /* テキスト入力用エリア */
         #text-input {
             position: absolute; z-index: 30; display: none; background: transparent; border: 1px dashed var(--primary-color);
@@ -137,6 +147,7 @@
             <button class="btn-sys" id="btn-select-dir">📂 保存先フォルダ選択</button>
             <button class="btn-sys" id="btn-export">💾 フォルダに直接保存</button>
             <button class="btn-sys" id="btn-import-trigger">📂 読込</button>
+            <button class="btn-sys" id="btn-fullscreen">🖥️ 全画面切替</button>
             <input type="file" id="backup-loader" accept=".json" style="display: none;">
         </div>
     </div>
@@ -200,6 +211,8 @@
                 <canvas id="canvas"></canvas>
             </div>
             <textarea id="text-input" placeholder="文字を入力..."></textarea>
+            <!-- 多機能ボタン（右側の赤いボタン） -->
+            <button id="multi-func-btn">多機能</button>
         </div>
     </div>
 
@@ -210,7 +223,7 @@
         let currentFolderId = null;
         let activeNoteId = null;
         let currentPageIndex = 0;
-        let targetDirectoryHandle = null; // 端末側フォルダのハンドル
+        let targetDirectoryHandle = null;
 
         let toolSettings = {
             pen: { color: '#172b4d', size: 3 },
@@ -252,7 +265,8 @@
             btnUndo: document.getElementById('btn-undo'),
             btnRedo: document.getElementById('btn-redo'),
             pageIndicator: document.getElementById('page-indicator'),
-            btnSelectDir: document.getElementById('btn-select-dir')
+            btnSelectDir: document.getElementById('btn-select-dir'),
+            btnFullscreen: document.getElementById('btn-fullscreen')
         };
 
         function saveData() { localStorage.setItem('my_handwritten_data', JSON.stringify(appData)); }
@@ -260,6 +274,50 @@
         ui.btnToggle.onclick = ui.btnToggleFloating.onclick = () => {
             document.body.classList.toggle('sidebar-closed');
             setTimeout(updateTransform, 300);
+        };
+
+        // --- 全画面表示切替 ---
+        ui.btnFullscreen.onclick = () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    alert('全画面表示を開始できませんでした。');
+                });
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+        };
+
+        // --- 多機能ボタンのダブルタップ・トリプルタップ判定 ---
+        let multiClickCount = 0;
+        let multiClickTimer = null;
+        const multiFuncBtn = document.getElementById('multi-func-btn');
+
+        multiFuncBtn.onclick = (e) => {
+            e.stopPropagation();
+            multiClickCount++;
+            if (multiClickTimer) clearTimeout(multiClickTimer);
+
+            multiClickTimer = setTimeout(() => {
+                if (multiClickCount === 2) {
+                    // ダブルタップ：ペンと蛍光ペンを入れ替え
+                    if (currentTool === 'pen') {
+                        setTool('marker');
+                    } else {
+                        setTool('pen');
+                    }
+                } else if (multiClickCount >= 3) {
+                    // トリプルタップ：ペン/蛍光ペンと消しゴムを入れ替え
+                    if (currentTool === 'eraser') {
+                        setTool('pen');
+                    } else {
+                        setTool('eraser');
+                    }
+                }
+                multiClickCount = 0;
+                multiClickTimer = null;
+            }, 300); // 300ms以内に連続タップされたかを判定
         };
 
         function renderSidebar() {
@@ -596,7 +654,7 @@
         }
 
         wrapper.addEventListener('pointerdown', (e) => {
-            if (!activeNoteId || e.target === textInput) return;
+            if (!activeNoteId || e.target === textInput || e.target === multiFuncBtn) return;
             pointers.set(e.pointerId, e);
 
             if (currentTool === 'hand' || e.button === 1 || pointers.size === 2 || e.shiftKey) {
@@ -754,7 +812,6 @@
             }
         };
 
-        // --- PDF読み込み処理の修正（確実にプレビュー・表示されるよう対応） ---
         const fileLoader = document.getElementById('file-loader');
         document.getElementById('btn-load-file').onclick = () => fileLoader.click();
         
@@ -770,8 +827,6 @@
                     try {
                         const pdf = await pdfjsLib.getDocument(new Uint8Array(this.result)).promise;
                         const numPages = pdf.numPages;
-                        
-                        let firstLoadedIndex = currentPageIndex;
 
                         for (let i = 1; i <= numPages; i++) {
                             const page = await pdf.getPage(i);
@@ -833,15 +888,14 @@
             paperContainer.style.transform = currentTransform;
         };
 
-        // --- 端末側フォルダの指定保存（File System Access API） ---
         ui.btnSelectDir.onclick = async () => {
             if (!window.showDirectoryPicker) {
-                alert('お使いのブラウザはローカルフォルダの直接指定に対応していません（ChromeやEdgeをご利用ください）。従来のダウンロード方式を利用します。');
+                alert('お使いのブラウザはローカルフォルダの直接指定に対応していません（ChromeやEdgeをご利用ください）。');
                 return;
             }
             try {
                 targetDirectoryHandle = await window.showDirectoryPicker();
-                alert('保存先フォルダが設定されました。今後は「フォルダに直接保存」ボタンでこのフォルダに直接上書き保存されます。');
+                alert('保存先フォルダが設定されました。今後は「フォルダに直接保存」ボタンで直接上書き保存されます。');
                 ui.btnSelectDir.textContent = '📂 保存先変更';
             } catch (err) {
                 if (err.name !== 'AbortError') {
@@ -862,7 +916,6 @@
 
             const jsonData = JSON.stringify(appData, null, 2);
 
-            // フォルダハンドルが取得できている場合は、直接端末フォルダへ保存する
             if (targetDirectoryHandle && window.showDirectoryPicker) {
                 try {
                     const fileHandle = await targetDirectoryHandle.getFileHandle(fileName, { create: true });
@@ -877,7 +930,6 @@
                 }
             }
 
-            // フォールバック（通常のブラウザダウンロード）
             const blob = new Blob([jsonData], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
