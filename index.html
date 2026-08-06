@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>手書きノートアプリ - 常時開閉タブ対応</title>
+    <title>手書きノートアプリ - 画面いっぱい表示対応</title>
     <!-- PDF.js の読み込み -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
@@ -295,7 +295,7 @@
 
         function saveData() { localStorage.setItem('my_handwritten_data', JSON.stringify(appData)); }
 
-        // メニュー開閉アクション（ツールバー内の「≡」と常時タブの両方で連動）
+        // メニュー開閉アクション
         const toggleSidebarAction = () => {
             document.body.classList.toggle('sidebar-closed');
             setTimeout(updateTransform, 300);
@@ -338,14 +338,12 @@
 
             multiClickTimer = setTimeout(() => {
                 if (multiClickCount === 2) {
-                    // ダブルタップ：ペンと蛍光ペンを入れ替え
                     if (currentTool === 'pen') {
                         setTool('marker');
                     } else {
                         setTool('pen');
                     }
                 } else if (multiClickCount >= 3) {
-                    // トリプルタップ：ペン/蛍光ペンと消しゴムを入れ替え
                     if (currentTool === 'eraser') {
                         setTool('pen');
                     } else {
@@ -521,8 +519,8 @@
 
             if (resetPos) {
                 panX = 0; panY = 0;
-                // 全画面かつツールバー非表示時は余白を極力なくして画面いっぱいに拡大
-                const marginFactor = document.fullscreenElement ? 0.98 : 0.9;
+                // 画面いっぱいに広げるため、余白係数を1.0（またはギリギリの0.99）に設定
+                const marginFactor = document.fullscreenElement ? 0.99 : 0.96;
                 const scaleX = (wrapper.clientWidth * marginFactor) / sizeDef.width;
                 const scaleY = (wrapper.clientHeight * marginFactor) / sizeDef.height;
                 scale = Math.min(scaleX, scaleY);
