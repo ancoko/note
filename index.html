@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>手書きノートアプリ - フルスクリーン・最大幅対応</title>
+    <title>手書きノートアプリ - 常時開閉タブ対応</title>
     <!-- PDF.js の読み込み -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
@@ -116,6 +116,16 @@
 
         .placeholder { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #6b778c; font-size: 1.1rem; pointer-events: none; text-align: center; z-index: 10; width: 80%; }
 
+        /* 常時表示の開閉タブ（フローティングタブ） */
+        #persistent-toggle-tab {
+            position: absolute; top: 12px; left: 12px; z-index: 45;
+            background: rgba(255, 255, 255, 0.9); border: 1px solid var(--border-color);
+            padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 1rem; font-weight: bold;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: flex; align-items: center; gap: 6px;
+            transition: background 0.1s;
+        }
+        #persistent-toggle-tab:hover { background: #ffffff; }
+
         /* 多機能ボタン（右側の赤いボタン） */
         #multi-func-btn {
             position: absolute; right: 20px; bottom: 30px; width: 60px; height: 60px;
@@ -216,7 +226,9 @@
         </div>
 
         <div class="canvas-wrapper" id="canvas-wrapper">
-            <button class="btn-toggle-sidebar" id="btn-toggle-floating" style="position: absolute; top: 12px; left: 12px; z-index: 10;">≡ メニュー</button>
+            <!-- 常時表示されるメニュー開閉タブ -->
+            <button id="persistent-toggle-tab">≡ メニュー</button>
+            
             <div class="placeholder" id="placeholder">「≡ メニュー」からノートを選択または新規作成してください</div>
             <div class="paper-container bg-grid" id="paper-container">
                 <canvas id="canvas"></canvas>
@@ -269,7 +281,7 @@
             toolbar: toolbar,
             placeholder: document.getElementById('placeholder'),
             btnToggle: document.getElementById('btn-toggle'),
-            btnToggleFloating: document.getElementById('btn-toggle-floating'),
+            persistentToggleTab: document.getElementById('persistent-toggle-tab'),
             colorPicker: document.getElementById('color-picker'),
             brushSize: document.getElementById('brush-size'),
             sizeSelect: document.getElementById('size-select'),
@@ -283,17 +295,19 @@
 
         function saveData() { localStorage.setItem('my_handwritten_data', JSON.stringify(appData)); }
 
-        ui.btnToggle.onclick = ui.btnToggleFloating.onclick = () => {
+        // メニュー開閉アクション（ツールバー内の「≡」と常時タブの両方で連動）
+        const toggleSidebarAction = () => {
             document.body.classList.toggle('sidebar-closed');
             setTimeout(updateTransform, 300);
         };
+        ui.btnToggle.onclick = toggleSidebarAction;
+        ui.persistentToggleTab.onclick = toggleSidebarAction;
 
-        // --- 全画面表示切替（上部バーの非表示と紙の最大幅拡大対応） ---
+        // --- 全画面表示切替 ---
         ui.btnFullscreen.onclick = () => {
             if (!document.fullscreenElement) {
                 document.documentElement.requestFullscreen().then(() => {
                     toolbar.classList.add('fullscreen-hidden');
-                    ui.btnToggleFloating.style.display = 'none'; // フローティングメニューボタンも全画面時は隠して最大化
                     setTimeout(() => initNoteView(true), 250);
                 }).catch(err => {
                     alert('全画面表示を開始できませんでした。');
@@ -308,11 +322,6 @@
         document.addEventListener('fullscreenchange', () => {
             if (!document.fullscreenElement) {
                 toolbar.classList.remove('fullscreen-hidden');
-                if (activeNoteId) {
-                    ui.btnToggleFloating.style.display = 'none';
-                } else {
-                    ui.btnToggleFloating.style.display = 'block';
-                }
                 setTimeout(() => initNoteView(true), 250);
             }
         });
@@ -393,7 +402,7 @@
                 `;
                 item.onclick = () => {
                     selectNote(note.id, true);
-                    if (window.innerWidth <= 768) ui.btnToggle.click();
+                    if (window.innerWidth <= 768) toggleSidebarAction();
                 };
                 ui.itemList.appendChild(item);
             });
@@ -421,7 +430,7 @@
             };
             appData.notes.push(newNote);
             saveData(); selectNote(newNote.id, true);
-            if (window.innerWidth <= 768) ui.btnToggle.click();
+            if (window.innerWidth <= 768) toggleSidebarAction();
         };
 
         window.renameItem = (id, type, e) => {
@@ -453,7 +462,6 @@
             if (activeNoteId === id) {
                 activeNoteId = null;
                 ui.toolbar.style.display = 'none'; 
-                ui.btnToggleFloating.style.display = document.fullscreenElement ? 'none' : 'block'; 
                 ui.placeholder.style.display = 'block';
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
             }
@@ -464,7 +472,6 @@
             activeNoteId = id;
             currentPageIndex = 0;
             ui.toolbar.style.display = 'flex'; 
-            ui.btnToggleFloating.style.display = 'none'; 
             ui.placeholder.style.display = 'none';
             initNoteView(resetPos); renderSidebar();
         }
@@ -514,7 +521,7 @@
 
             if (resetPos) {
                 panX = 0; panY = 0;
-                // 全画面かつツールバー非表示時は余白を極力なくして画面いっぱいに拡大（係数を0.98に拡張）
+                // 全画面かつツールバー非表示時は余白を極力なくして画面いっぱいに拡大
                 const marginFactor = document.fullscreenElement ? 0.98 : 0.9;
                 const scaleX = (wrapper.clientWidth * marginFactor) / sizeDef.width;
                 const scaleY = (wrapper.clientHeight * marginFactor) / sizeDef.height;
@@ -688,7 +695,7 @@
         }
 
         wrapper.addEventListener('pointerdown', (e) => {
-            if (!activeNoteId || e.target === textInput || e.target === multiFuncBtn) return;
+            if (!activeNoteId || e.target === textInput || e.target === multiFuncBtn || e.target === ui.persistentToggleTab) return;
             pointers.set(e.pointerId, e);
 
             if (currentTool === 'hand' || e.button === 1 || pointers.size === 2 || e.shiftKey) {
