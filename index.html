@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>手書きノートアプリ - 画面いっぱい表示対応</title>
+    <title>手書きノートアプリ - 修正版</title>
     <!-- PDF.js の読み込み -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
@@ -126,15 +126,15 @@
         }
         #persistent-toggle-tab:hover { background: #ffffff; }
 
-        /* 多機能ボタン（右側の赤いボタン） */
-        #multi-func-btn {
-            position: absolute; right: 20px; bottom: 30px; width: 60px; height: 60px;
-            background-color: #de350b; color: white; border: none; border-radius: 50%;
-            font-size: 0.8rem; font-weight: bold; cursor: pointer; z-index: 40;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center;
-            user-select: none; transition: transform 0.1s;
+        /* 機能切り替えボタン（右側のフローティングボタン） */
+        #mode-switch-btn {
+            position: absolute; right: 20px; bottom: 30px; width: 68px; height: 68px;
+            background-color: #0052cc; color: white; border: none; border-radius: 50%;
+            font-size: 0.85rem; font-weight: bold; cursor: pointer; z-index: 40;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center;
+            user-select: none; transition: transform 0.1s, background-color 0.2s; text-align: center;
         }
-        #multi-func-btn:active { transform: scale(0.95); }
+        #mode-switch-btn:active { transform: scale(0.95); }
 
         /* テキスト入力用エリア */
         #text-input {
@@ -234,8 +234,8 @@
                 <canvas id="canvas"></canvas>
             </div>
             <textarea id="text-input" placeholder="文字を入力..."></textarea>
-            <!-- 多機能ボタン（右側の赤いボタン） -->
-            <button id="multi-func-btn">多機能</button>
+            <!-- 状態表示および機能切り替え用ボタン -->
+            <button id="mode-switch-btn">ペン</button>
         </div>
     </div>
 
@@ -323,37 +323,58 @@
             if (!document.fullscreenElement) {
                 toolbar.classList.remove('fullscreen-hidden');
                 setTimeout(() => initNoteView(true), 250);
+            } else {
+                setTimeout(() => initNoteView(true), 250);
             }
         });
 
-        // --- 多機能ボタンのダブルタップ・トリプルタップ判定 ---
-        let multiClickCount = 0;
-        let multiClickTimer = null;
-        const multiFuncBtn = document.getElementById('multi-func-btn');
+        // --- 右下ボタンのタップ判定（1回タップ: ペン/蛍光ペン/消しゴム切替、Wタップ: Undo、Tタップ: Redo） ---
+        let clickCount = 0;
+        let clickTimer = null;
+        const modeSwitchBtn = document.getElementById('mode-switch-btn');
 
-        multiFuncBtn.onclick = (e) => {
+        modeSwitchBtn.onclick = (e) => {
             e.stopPropagation();
-            multiClickCount++;
-            if (multiClickTimer) clearTimeout(multiClickTimer);
+            clickCount++;
+            if (clickTimer) clearTimeout(clickTimer);
 
-            multiClickTimer = setTimeout(() => {
-                if (multiClickCount === 2) {
+            clickTimer = setTimeout(() => {
+                if (clickCount === 1) {
+                    // 1回タップ：ペン ➔ 蛍光ペン ➔ 消しゴム ➔ ペン
                     if (currentTool === 'pen') {
                         setTool('marker');
-                    } else {
-                        setTool('pen');
-                    }
-                } else if (multiClickCount >= 3) {
-                    if (currentTool === 'eraser') {
-                        setTool('pen');
-                    } else {
+                    } else if (currentTool === 'marker') {
                         setTool('eraser');
+                    } else {
+                        setTool('pen');
                     }
+                } else if (clickCount === 2) {
+                    // ダブルタップ：一つ戻る (Undo)
+                    document.getElementById('btn-undo').click();
+                } else if (clickCount >= 3) {
+                    // トリプルタップ以上：一つ進む (Redo)
+                    document.getElementById('btn-redo').click();
                 }
-                multiClickCount = 0;
-                multiClickTimer = null;
+                clickCount = 0;
+                clickTimer = null;
             }, 300);
         };
+
+        function updateModeSwitchButtonLabel() {
+            if (currentTool === 'pen') {
+                modeSwitchBtn.textContent = 'ペン';
+                modeSwitchBtn.style.backgroundColor = '#0052cc';
+            } else if (currentTool === 'marker') {
+                modeSwitchBtn.textContent = '蛍光ペン';
+                modeSwitchBtn.style.backgroundColor = '#e5a900';
+            } else if (currentTool === 'eraser') {
+                modeSwitchBtn.textContent = '消しゴム';
+                modeSwitchBtn.style.backgroundColor = '#de350b';
+            } else {
+                modeSwitchBtn.textContent = currentTool;
+                modeSwitchBtn.style.backgroundColor = '#0052cc';
+            }
+        }
 
         function renderSidebar() {
             ui.itemList.innerHTML = '';
@@ -519,8 +540,8 @@
 
             if (resetPos) {
                 panX = 0; panY = 0;
-                // 画面いっぱいに広げるため、余白係数を1.0（またはギリギリの0.99）に設定
-                const marginFactor = document.fullscreenElement ? 0.99 : 0.96;
+                // 余白を残さず画面いっぱいに収めるためのスケール計算
+                const marginFactor = 0.99;
                 const scaleX = (wrapper.clientWidth * marginFactor) / sizeDef.width;
                 const scaleY = (wrapper.clientHeight * marginFactor) / sizeDef.height;
                 scale = Math.min(scaleX, scaleY);
@@ -655,7 +676,10 @@
             }
             
             currentTool = tool;
-            ['pen', 'marker', 'text', 'eraser', 'hand'].forEach(t => document.getElementById('btn-' + t).classList.toggle('active', t === tool));
+            ['pen', 'marker', 'text', 'eraser', 'hand'].forEach(t => {
+                const btn = document.getElementById('btn-' + t);
+                if (btn) btn.classList.toggle('active', t === tool);
+            });
             wrapper.className = `canvas-wrapper mode-${tool}`;
             textInput.style.display = 'none';
 
@@ -669,10 +693,13 @@
             } else {
                 ui.colorPicker.disabled = true;
             }
+
+            updateModeSwitchButtonLabel();
         }
 
         ['pen', 'marker', 'text', 'eraser', 'hand'].forEach(tool => {
-            document.getElementById('btn-' + tool).onclick = () => setTool(tool);
+            const btn = document.getElementById('btn-' + tool);
+            if (btn) btn.onclick = () => setTool(tool);
         });
 
         document.getElementById('btn-straight').onclick = function() {
@@ -684,7 +711,12 @@
         ui.brushSize.oninput = (e) => { if (toolSettings[currentTool]) toolSettings[currentTool].size = Number(e.target.value); };
 
         let currentPath = null;
-        let pointers = new Map(), initialPinchDistance = null, initialScale = 1, isPanning = false, startPanX = 0, startPanY = 0;
+        let pointers = new Map();
+        let initialPinchDistance = null;
+        let initialScale = 1;
+        let initialMidX = 0, initialMidY = 0;
+        let startPanX = 0, startPanY = 0;
+        let isPanning = false;
         let textInputPos = { x: 0, y: 0 };
 
         function getCanvasPos(e) {
@@ -693,12 +725,23 @@
         }
 
         wrapper.addEventListener('pointerdown', (e) => {
-            if (!activeNoteId || e.target === textInput || e.target === multiFuncBtn || e.target === ui.persistentToggleTab) return;
+            if (!activeNoteId || e.target === textInput || e.target === modeSwitchBtn || e.target === ui.persistentToggleTab) return;
             pointers.set(e.pointerId, e);
 
+            // 二本指操作または手のひらツール、中クリック、Shiftキー押下時はパン・ズームモード
             if (currentTool === 'hand' || e.button === 1 || pointers.size === 2 || e.shiftKey) {
-                isPanning = true; wrapper.classList.add('is-dragging');
-                startPanX = e.clientX - panX; startPanY = e.clientY - panY;
+                isDrawing = false;
+                if (pointers.size === 2) {
+                    const pts = Array.from(pointers.values());
+                    initialPinchDistance = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY);
+                    initialScale = scale;
+                    initialMidX = (pts[0].clientX + pts[1].clientX) / 2;
+                    initialMidY = (pts[0].clientY + pts[1].clientY) / 2;
+                }
+                isPanning = true; 
+                wrapper.classList.add('is-dragging');
+                startPanX = e.clientX - panX; 
+                startPanY = e.clientY - panY;
                 return;
             }
 
@@ -734,41 +777,74 @@
 
         wrapper.addEventListener('pointermove', (e) => {
             if (!activeNoteId) return;
-            pointers.set(e.pointerId, e);
+            if (pointers.has(e.pointerId)) {
+                pointers.set(e.pointerId, e);
+            }
 
+            // 二本指ピンチイン・アウトおよびスムーズな移動の最適化処理
             if (pointers.size === 2) {
                 isDrawing = false;
                 const pts = Array.from(pointers.values());
-                const dist = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY);
-                if (!initialPinchDistance) { initialPinchDistance = dist; initialScale = scale; } 
-                else { scale = Math.min(Math.max(initialScale * (dist / initialPinchDistance), 0.1), 10.0); updateTransform(); }
+                const currentDist = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY);
+                const currentMidX = (pts[0].clientX + pts[1].clientX) / 2;
+                const currentMidY = (pts[0].clientY + pts[1].clientY) / 2;
+
+                if (initialPinchDistance && initialPinchDistance > 0) {
+                    const newScale = Math.min(Math.max(initialScale * (currentDist / initialPinchDistance), 0.1), 10.0);
+                    scale = newScale;
+                }
+                
+                // 二本指の中点移動をパン座標に反映
+                panX = currentMidX - (initialMidX - startPanX);
+                panY = currentMidY - (initialMidY - startPanY);
+
+                updateTransform();
                 return;
             }
 
-            if (isPanning) { panX = e.clientX - startPanX; panY = e.clientY - startPanY; updateTransform(); return; }
+            if (isPanning) { 
+                panX = e.clientX - startPanX; 
+                panY = e.clientY - startPanY; 
+                updateTransform(); 
+                return; 
+            }
 
             if (isDrawing && currentPath) {
                 const pos = getCanvasPos(e);
-                if (currentPath.isStraight && currentPath.points.length > 1) { currentPath.points[1] = pos; } 
-                else { currentPath.points.push(pos); }
+                if (currentPath.isStraight && currentPath.points.length > 1) { 
+                    currentPath.points[1] = pos; 
+                } else { 
+                    currentPath.points.push(pos); 
+                }
                 drawActiveNote();
             }
         });
 
         const endPointer = (e) => {
             pointers.delete(e.pointerId);
-            if (pointers.size < 2) initialPinchDistance = null;
+            if (pointers.size < 2) {
+                initialPinchDistance = null;
+            }
             if (pointers.size === 0) {
                 if (isDrawing && activeNoteId) {
                     isDrawing = false;
                     const note = appData.notes.find(n => n.id === activeNoteId);
                     if (note) { note.updatedAt = Date.now(); saveData(); updateUndoRedoButtons(); }
                 }
-                if (isPanning) { isPanning = false; wrapper.classList.remove('is-dragging'); }
+                if (isPanning) { 
+                    isPanning = false; 
+                    wrapper.classList.remove('is-dragging'); 
+                }
+            } else if (pointers.size === 1) {
+                // 指が1本残った場合は、その位置を基準にパンを継続できるように再設定
+                const remainingPt = Array.from(pointers.values())[0];
+                startPanX = remainingPt.clientX - panX;
+                startPanY = remainingPt.clientY - panY;
             }
         };
 
-        wrapper.addEventListener('pointerup', endPointer); wrapper.addEventListener('pointercancel', endPointer);
+        wrapper.addEventListener('pointerup', endPointer); 
+        wrapper.addEventListener('pointercancel', endPointer);
 
         wrapper.addEventListener('wheel', (e) => {
             if (!activeNoteId || e.target === textInput) return;
